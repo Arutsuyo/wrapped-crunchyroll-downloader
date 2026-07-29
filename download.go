@@ -186,25 +186,8 @@ func downloadSubs(url string) string {
 }
 
 func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs []string, videoQuality, audioQuality *string, baseDirectory string) (bool, error) {
-	sanitize := func(s string) string {
-		if s == "" {
-			return "Unknown"
-		}
-
-		// Characters that are illegal in Windows filenames or break the final path
-		illegal := []string{"\\", "/", ":", "*", "?", "\"", "<", ">", "|", "'", "’", "`", "“", "”"}
-		res := s
-		for _, char := range illegal {
-			res = strings.ReplaceAll(res, char, "_")
-		}
-		for strings.Contains(res, "__") {
-			res = strings.ReplaceAll(res, "__", "_")
-		}
-		return strings.TrimRight(res, " .")
-	}
-
-	cleanSeriesTitle := sanitize(info.EpisodeMetadata.SeriesTitle)
-	cleanEpisodeTitle := sanitize(info.Title)
+	cleanSeriesTitle := sanitizeFilename(info.EpisodeMetadata.SeriesTitle)
+	cleanEpisodeTitle := sanitizeFilename(info.Title)
 
 	if _, err := os.Stat(filepath.Join(baseDirectory, cleanSeriesTitle)); err != nil {
 		_ = os.MkdirAll(filepath.Join(baseDirectory, cleanSeriesTitle), 0777)
