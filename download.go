@@ -279,6 +279,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		}
 		if r := recover(); r != nil {
 			print("Recovered from error:", r)
+			os.Exit(1)
 		}
 	}()
 
