@@ -17,6 +17,7 @@ var (
 	seasonNumber  = flag.Int("season", 0, "Season number. Not used if an episode link is entered")
 	etpRt         = flag.String("etp-rt", "", "The \"etp_rt\" cookie value of your account")
 	debug         = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
+	output        = flag.String("output-dir", ".", "Target output folder")
 )
 
 // parseLangs splits a comma-separated locale list, trimming spaces and dropping
@@ -60,7 +61,7 @@ func processUrl(url string) {
 
 	if contentType == "watch" {
 		info := getEpisodeInfo(contentId)
-		downloadEpisode(contentId, info, audioLangs, subsLangs, videoQuality, audioQuality)
+		downloadEpisode(contentId, info, audioLangs, subsLangs, videoQuality, audioQuality, *output)
 	} else {
 		seasons := getSeasons(contentId, primaryAudio, primarySubs)
 
@@ -78,13 +79,13 @@ func processUrl(url string) {
 			}
 
 			episodes := getSeasonEpisodes(seasonId, primaryAudio, primarySubs)
-			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes)
+			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
 		} else {
 			print("No season number specified, downloading all seasons...\n")
 
 			for _, season := range seasons {
 				episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySubs)
-				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes)
+				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
 			}
 		}
 	}
@@ -97,6 +98,11 @@ func main() {
 
 	if *url == "" && *urlsFile == "" {
 		flag.Usage()
+		os.Exit(1)
+	}
+
+	if fileinfo, err := os.Stat(*output); os.IsNotExist(err) || !fileinfo.IsDir() {
+		fmt.Println("You must specify a valid directory for outputting files.")
 		os.Exit(1)
 	}
 
