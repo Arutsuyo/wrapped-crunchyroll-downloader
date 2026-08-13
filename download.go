@@ -187,7 +187,7 @@ func downloadSubs(url string) string {
 	return filename
 }
 
-func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs []string, videoQuality, audioQuality *string) {
+func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs []string, videoQuality, audioQuality *string, baseDirectory string) {
 	sanitize := func(s string) string {
 		if s == "" {
 			return "Unknown"
@@ -208,11 +208,11 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	cleanSeriesTitle := sanitize(info.EpisodeMetadata.SeriesTitle)
 	cleanEpisodeTitle := sanitize(info.Title)
 
-	if _, err := os.Stat(cleanSeriesTitle); err != nil {
-		_ = os.MkdirAll(cleanSeriesTitle, 0777)
+	if _, err := os.Stat(filepath.Join(baseDirectory, cleanSeriesTitle)); err != nil {
+		_ = os.MkdirAll(filepath.Join(baseDirectory, cleanSeriesTitle), 0777)
 	}
 
-	outputFile := filepath.Join(cleanSeriesTitle, fmt.Sprintf("%s S%02dE%02d - %s [%s].mkv",
+	outputFile := filepath.Join(baseDirectory, cleanSeriesTitle, fmt.Sprintf("%s S%02dE%02d - %s [%s].mkv",
 		cleanSeriesTitle,
 		info.EpisodeMetadata.SeasonNumber,
 		info.EpisodeMetadata.EpisodeNumber,
@@ -373,7 +373,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	mergeEverything(videoFile, audioTracks, subTracks, outputFile, info)
 }
 
-func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []string, episodes []SeasonEpisode) {
+func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []string, episodes []SeasonEpisode, baseDirectory string) {
 	fmt.Printf("Downloading season %v of %s (%v episodes)\n\n", episodes[0].SeasonNumber, episodes[0].SeriesTitle, len(episodes))
 
 	for _, episode := range episodes {
@@ -389,6 +389,6 @@ func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []
 			Title: episode.Title,
 		}
 
-		downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality)
+		downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
 	}
 }
