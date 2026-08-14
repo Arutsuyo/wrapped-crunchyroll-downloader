@@ -19,7 +19,7 @@ var (
 	etpRt            = flag.String("etp-rt", "", "The \"etp_rt\" cookie value of your account")
 	debug            = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
 	output           = flag.String("output-dir", ".", "Target output folder")
-	downloadThrottle = flag.Int("throttle", 900, "Throttling between downloads to avoid tripping resource limits. Only used when not specifying a specific episode")
+	downloadThrottle = flag.Int("throttle", 60, "Throttling between downloads to avoid tripping resource limits. Only used when not specifying a specific episode")
 )
 
 // parseLangs splits a comma-separated locale list, trimming spaces and dropping
@@ -91,7 +91,9 @@ func processUrl(url string) {
 
 				episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySubs)
 				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
-				time.Sleep(time.Second * time.Duration(*downloadThrottle))
+				if ind != len(seasons)-1 {
+					time.Sleep(time.Second * time.Duration(*downloadThrottle))
+				}
 			}
 		}
 	}
