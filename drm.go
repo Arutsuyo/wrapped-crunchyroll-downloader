@@ -5,15 +5,47 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 
-	"github.com/iyear/gowidevine"
+	"github.com/Eyevinn/mp4ff/mp4"
+	widevine "github.com/iyear/gowidevine"
 	"github.com/iyear/gowidevine/widevinepb"
 	"github.com/unki2aut/go-mpd"
 )
+
+func decryptMP4(data []byte, licenseKeys []*widevine.Key, output io.Writer) error {
+	file, err := mp4.DecodeFile(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("decode MP4: %w", err)
+	}
+	if file.Init == nil {
+		return errors.New("MP4 has no initialization segment")
+	}
+
+	decryptInfo, err := mp4.DecryptInit(file.Init)
+	if err != nil {
+		return fmt.Errorf("read MP4 encryption info: %w", err)
+	}
+
+	for _, track := range decryptInfo.TrackInfos {
+		if track.Sinf == nil || track.Sinf.Schi == nil || track.Sinf.Schi.Tenc == nil {
+			continue
+		}
+		kid := track.Sinf.Schi.Tenc.DefaultKID
+		for _, key := range licenseKeys {
+			if key.Type == widevinepb.License_KeyContainer_CONTENT && bytes.Equal(key.ID, kid) {
+				return widevine.DecryptMP4(bytes.NewReader(data), key.Key, output)
+			}
+		}
+		return fmt.Errorf("no license key found for MP4 KID %x", kid)
+	}
+
+	return errors.New("MP4 has no encrypted tracks")
+}
 
 var keys []*widevine.Key
 

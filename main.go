@@ -63,7 +63,10 @@ func processUrl(url string) {
 
 	if contentType == "watch" {
 		info := getEpisodeInfo(contentId)
-		downloadEpisode(contentId, info, audioLangs, subsLangs, videoQuality, audioQuality, *output)
+		_, err := downloadEpisode(contentId, info, audioLangs, subsLangs, videoQuality, audioQuality, *output)
+		if err != nil {
+			fmt.Printf(err.Error())
+		}
 	} else {
 		seasons := getSeasons(contentId, primaryAudio, primarySubs)
 
