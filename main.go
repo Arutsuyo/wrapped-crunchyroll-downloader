@@ -6,18 +6,20 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 var (
-	token         = ""
-	audioLang     = flag.String("audio-lang", "ja-JP", "Audio language(s), comma-separated for multiple (e.g. \"ja-JP,en-US\"). First is the default track")
-	subtitlesLang = flag.String("subs-lang", "en-US", "Subtitle language(s), comma-separated for multiple (e.g. \"en-US,es-419\"). First is the default track")
-	videoQuality  = flag.String("video-quality", "1080p", "Video quality")
-	audioQuality  = flag.String("audio-quality", "192k", "Audio quality")
-	seasonNumber  = flag.Int("season", 0, "Season number. Not used if an episode link is entered")
-	etpRt         = flag.String("etp-rt", "", "The \"etp_rt\" cookie value of your account")
-	debug         = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
-	output        = flag.String("output-dir", ".", "Target output folder")
+	token            = ""
+	audioLang        = flag.String("audio-lang", "ja-JP", "Audio language(s), comma-separated for multiple (e.g. \"ja-JP,en-US\"). First is the default track")
+	subtitlesLang    = flag.String("subs-lang", "en-US", "Subtitle language(s), comma-separated for multiple (e.g. \"en-US,es-419\"). First is the default track")
+	videoQuality     = flag.String("video-quality", "1080p", "Video quality")
+	audioQuality     = flag.String("audio-quality", "192k", "Audio quality")
+	seasonNumber     = flag.Int("season", 0, "Season number. Not used if an episode link is entered")
+	etpRt            = flag.String("etp-rt", "", "The \"etp_rt\" cookie value of your account")
+	debug            = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
+	output           = flag.String("output-dir", ".", "Target output folder")
+	downloadThrottle = flag.Int("throttle", 900, "Throttling between downloads to avoid tripping resource limits. Only used when not specifying a specific episode")
 )
 
 // parseLangs splits a comma-separated locale list, trimming spaces and dropping
@@ -81,11 +83,12 @@ func processUrl(url string) {
 			episodes := getSeasonEpisodes(seasonId, primaryAudio, primarySubs)
 			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
 		} else {
-			print("No season number specified, downloading all seasons...\n")
+			for ind, season := range seasons {
+				fmt.Printf("[Downloading Seasons] %v/%v\n", ind, len(seasons))
 
-			for _, season := range seasons {
 				episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySubs)
 				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
+				time.Sleep(time.Second * time.Duration(*downloadThrottle))
 			}
 		}
 	}
@@ -108,6 +111,11 @@ func main() {
 
 	if *etpRt == "" {
 		fmt.Println("You must specify the \"-etp-rt\" option!\n- Open Crunchyroll on your browser and log in.\n- Open developer tools (Ctrl+Shift+I), go to \"Application\", and then \"Cookies\".\n- The value of the \"ept_rt\" cookie is what you need to input into this option.")
+		os.Exit(1)
+	}
+
+	if *downloadThrottle < 0 {
+		flag.Usage()
 		os.Exit(1)
 	}
 

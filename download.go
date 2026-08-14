@@ -374,9 +374,13 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 }
 
 func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []string, episodes []SeasonEpisode, baseDirectory string) {
-	fmt.Printf("Downloading season %v of %s (%v episodes)\n\n", episodes[0].SeasonNumber, episodes[0].SeriesTitle, len(episodes))
+	fmt.Printf("[Downloading Season] Season %v - Episodes %v - %s\n", episodes[0].SeasonNumber, len(episodes), episodes[0].SeriesTitle)
 
-	for _, episode := range episodes {
+	for index, episode := range episodes {
+		if index != 0 {
+			time.Sleep(time.Second * time.Duration(*downloadThrottle))
+		}
+
 		info := EpisodeInfo{
 			EpisodeMetadata: EpisodeMetadata{
 				SeriesTitle:        episode.SeriesTitle,
@@ -388,6 +392,8 @@ func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []
 			},
 			Title: episode.Title,
 		}
+
+		fmt.Printf("[Downloading Video] %v - %s\n", index, episode.Title)
 
 		downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
 	}
