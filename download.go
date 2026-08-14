@@ -187,7 +187,7 @@ func downloadSubs(url string) string {
 	return filename
 }
 
-func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs []string, videoQuality, audioQuality *string, baseDirectory string) {
+func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs []string, videoQuality, audioQuality *string, baseDirectory string) (bool, error) {
 	sanitize := func(s string) string {
 		if s == "" {
 			return "Unknown"
@@ -222,7 +222,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 
 	if _, err := os.Stat(outputFile); err == nil {
 		fmt.Printf("Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
-		return
+		return false, nil
 	}
 
 	// Resolve each requested audio locale to its version GUID. Each dub is a
@@ -260,8 +260,8 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	for _, locale := range audioLangs {
 		guid, ok := guidByLocale[locale]
 		if !ok {
-			fmt.Printf("! Audio locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
-			return
+			err := fmt.Errorf("! Audio locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
+			return false, err
 		}
 		versions = append(versions, audioVersion{locale: locale, contentId: guid})
 	}
@@ -302,8 +302,8 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 
 	for _, locale := range subsLangs {
 		if firstEpisode.Subtitles[locale] == nil {
-			fmt.Printf("! Subtitle locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
-			return
+			err := fmt.Errorf("! Subtitle locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
+			return false, err
 		}
 	}
 
@@ -371,13 +371,15 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	}
 
 	mergeEverything(videoFile, audioTracks, subTracks, outputFile, info)
+	return true, nil
 }
 
 func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []string, episodes []SeasonEpisode, baseDirectory string) {
 	fmt.Printf("[Downloading Season] Season %v - Episodes %v - %s\n", episodes[0].SeasonNumber, len(episodes), episodes[0].SeriesTitle)
-
+	workDone := true
+	var err error
 	for index, episode := range episodes {
-		if index != 0 {
+		if index != 0 && workDone == true {
 			time.Sleep(time.Second * time.Duration(*downloadThrottle))
 		}
 
@@ -395,6 +397,9 @@ func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []
 
 		fmt.Printf("[Downloading Video] %v - %s\n", index, episode.Title)
 
-		downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
+		workDone, err = downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
+		if err != nil {
+			fmt.Printf(err.Error())
+		}
 	}
 }
