@@ -118,7 +118,7 @@ func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (s
 				}
 				results[job.index] = data
 				count := done.Add(1)
-				fmt.Printf("\rDownloaded %v of %v segments (%v%%)", count, total, (100*count)/int64(total))
+				Logf(LogLevel_Debug, "\rDownloaded %v of %v segments (%v%%)", count, total, (100*count)/int64(total))
 			}
 		}()
 	}
@@ -134,7 +134,7 @@ func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (s
 		return "", downloadErr
 	}
 
-	fmt.Println("\nFinished downloading!")
+	Logln(LogLevel_Info, "\nFinished downloading!")
 
 	var parts []byte
 	parts = append(parts, initData...)
@@ -219,11 +219,11 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	))
 
 	if _, err := os.Stat(outputFile); err == nil {
-		fmt.Printf("Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
+		Logf(LogLevel_Info, "Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
 		return false, nil
 	}
 	if *dryRun {
-		fmt.Printf("[Dry Run] Downloaded %s - %s.\n", cleanSeriesTitle, cleanEpisodeTitle)
+		Logf(LogLevel_Info, "[Dry Run] Downloaded %s - %s.\n", cleanSeriesTitle, cleanEpisodeTitle)
 		return true, nil
 	}
 
@@ -268,7 +268,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		versions = append(versions, audioVersion{locale: locale, contentId: guid})
 	}
 
-	fmt.Printf("Downloading: %s (S%02vE%02v) from %s\n", info.Title, info.EpisodeMetadata.SeasonNumber, info.EpisodeMetadata.EpisodeNumber, info.EpisodeMetadata.SeriesTitle)
+	Logf(LogLevel_Debug, "Downloading: %s (S%02vE%02v) from %s\n", info.Title, info.EpisodeMetadata.SeasonNumber, info.EpisodeMetadata.EpisodeNumber, info.EpisodeMetadata.SeriesTitle)
 
 	// activeStreams tracks every playback token we open so we can release them
 	// all if anything fails partway through.
@@ -300,7 +300,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		sort.Strings(subsLangs)
 	}
 
-	fmt.Printf("Audio locales: %s | Subtitle locales: %s\n", strings.Join(audioLangs, ", "), strings.Join(subsLangs, ", "))
+	Logf(LogLevel_Trace, "Audio locales: %s | Subtitle locales: %s\n", strings.Join(audioLangs, ", "), strings.Join(subsLangs, ", "))
 
 	for _, locale := range subsLangs {
 		if firstEpisode.Subtitles[locale] == nil {
@@ -311,11 +311,11 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 
 	var subTracks []mediaTrack
 	for _, locale := range subsLangs {
-		fmt.Printf("Downloading subtitles for %s...\n", trackTitle(locale))
+		Logf(LogLevel_Trace, "Downloading subtitles for %s...\n", trackTitle(locale))
 		subTracks = append(subTracks, mediaTrack{file: downloadSubs(firstEpisode.Subtitles[locale].URL), locale: locale})
 	}
 	if len(subTracks) > 0 {
-		fmt.Println("Downloaded subtitles!")
+		Logln(LogLevel_Debug, "Downloaded subtitles!")
 	}
 
 	var videoFile string
@@ -340,7 +340,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		}
 
 		audioSet := manifest.Period[0].AdaptationSets[1]
-		fmt.Printf("Downloading %s audio...\n", trackTitle(version.locale))
+		Logf(LogLevel_Trace, "Downloading %s audio...\n", trackTitle(version.locale))
 		audioBaseUrl, audioRepresentationId := getBaseUrl(audioSet, false, *audioQuality)
 		if audioBaseUrl == nil {
 			panic(fmt.Sprintf("failed to get the audio base URL for %s, maybe the audio quality you entered is wrong?", version.locale))
@@ -355,7 +355,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		// the first version's keys (already loaded above).
 		if i == 0 {
 			videoSet := manifest.Period[0].AdaptationSets[0]
-			fmt.Println("Downloading video...")
+			Logln(LogLevel_Trace, "Downloading video...")
 			baseUrl, representationId := getBaseUrl(videoSet, true, *videoQuality)
 			if baseUrl == nil {
 				panic("failed to get the video base URL, maybe the video quality you entered is wrong?")
@@ -379,16 +379,16 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, primarySub string, audioLangs, subsLangs []string, seasons []Season, baseDirectory string) {
 	workDone := true
 	for ind, season := range seasons {
-		fmt.Printf("[Downloading Seasons] %v/%v\n", ind+1, len(seasons))
+		Logf(LogLevel_Info, "[Downloading Seasons] %v/%v\n", ind+1, len(seasons))
 
 		episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySub)
 
-		fmt.Printf("[Downloading Season] Season %v - Episodes %v - %s\n", episodes[0].SeasonNumber, len(episodes), episodes[0].SeriesTitle)
+		Logf(LogLevel_Info, "[Downloading Season] Season %v - Episodes %v - %s\n", episodes[0].SeasonNumber, len(episodes), episodes[0].SeriesTitle)
 
 		var err error
 		for index, episode := range episodes {
 			if index != 0 && workDone == true {
-				fmt.Printf("Delaying for %v seconds.\n", *downloadThrottle)
+				Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
 				time.Sleep(time.Second * time.Duration(*downloadThrottle))
 			}
 
@@ -404,16 +404,16 @@ func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, pr
 				Title: episode.Title,
 			}
 
-			fmt.Printf("[Downloading Video] %v - %s\n", index+1, episode.Title)
+			Logf(LogLevel_Info, "[Downloading Video] %v - %s\n", index+1, episode.Title)
 
 			workDone, err = downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
 			if err != nil {
-				fmt.Printf(err.Error())
+				Logf(LogLevel_Error, err.Error())
 			}
 		}
 
 		if ind != len(seasons)-1 && workDone == true {
-			fmt.Printf("Delaying for %v seconds.\n", *downloadThrottle)
+			Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
 			time.Sleep(time.Second * time.Duration(*downloadThrottle))
 		}
 	}

@@ -45,7 +45,7 @@ func getEpisode(id string) Episode {
 		panic(err)
 	}
 	if err = json.Unmarshal(body, &episode); err != nil {
-		fmt.Printf("\n%s\n", string(body))
+		Logf(LogLevel_Error, "\n%s\n", string(body))
 		panic(err)
 	}
 	if episode.Error != nil {
@@ -54,7 +54,7 @@ func getEpisode(id string) Episode {
 	}
 
 	if *debug {
-		fmt.Printf("\n%s\n", string(body))
+		Logf(LogLevel_Error, "\n%s\n", string(body))
 	}
 
 	return episode
