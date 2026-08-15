@@ -367,11 +367,11 @@ func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, pr
 		var err error
 		for index, episode := range episodes {
 			if index != 0 && workDone == true {
-				Logf(LogLevel_Debug, "Delaying for %v seconds.\n . .", *downloadThrottle)
+				Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
 				sleep_count := *downloadThrottle / 10
 				for i := 0; i < sleep_count; i++ {
 					time.Sleep(time.Second * time.Duration(10))
-					Logf(LogLevel_Debug, "Slept for %v of %v seconds.\r", (i+1) * 10, *downloadThrottle)
+					Logf(LogLevel_Debug, "Slept for %v of %v seconds\r", (i+1)*10, *downloadThrottle)
 				}
 				Logln(LogLevel_Debug, "\n")
 			}
@@ -401,7 +401,7 @@ func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, pr
 			sleep_count := *downloadThrottle / 10
 			for i := 0; i < sleep_count; i++ {
 				time.Sleep(time.Second * time.Duration(10))
-				Logf(LogLevel_Debug, "Slept for %v of %v seconds\r", (i+1) * 10, *downloadThrottle)
+				Logf(LogLevel_Debug, "Slept for %v of %v seconds\r", (i+1)*10, *downloadThrottle)
 			}
 			Logln(LogLevel_Debug, "\n")
 		}
