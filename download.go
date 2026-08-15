@@ -93,7 +93,7 @@ func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (s
 	initUrl := buildUrl(*baseUrl, *representationId, *set.SegmentTemplate.Initialization, nil)
 	initData, err := downloadPart(initUrl)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to download initialization segment: %w", err)
 	}
 
 	timeline := expandTimeline(set.SegmentTemplate.SegmentTimeline.S, 1)
@@ -113,7 +113,7 @@ func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (s
 			for job := range jobs {
 				data, err := downloadPart(job.url)
 				if err != nil {
-					errOnce.Do(func() { downloadErr = err })
+					errOnce.Do(func() { downloadErr = fmt.Errorf("[Error] segment download failed: %w", err) })
 					return
 				}
 				results[job.index] = data
@@ -134,7 +134,7 @@ func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (s
 		return "", downloadErr
 	}
 
-	fmt.Println("\nFinished downloading!")
+	fmt.Println("\nFinished downloading segments!")
 
 	var parts []byte
 	parts = append(parts, initData...)
@@ -145,7 +145,7 @@ func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (s
 	filename := getFilename(set)
 	file, err := os.Create(filename)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("[Error] failed to create output file: %w", err)
 	}
 	defer file.Close()
 	if err = decryptMP4(parts, keys, file); err != nil {
