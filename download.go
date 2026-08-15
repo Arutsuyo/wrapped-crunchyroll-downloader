@@ -362,11 +362,9 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, primarySub string, audioLangs, subsLangs []string, seasons []Season, baseDirectory string) {
 	workDone := true
 	for ind, season := range seasons {
-		Logf(LogLevel_Info, "[Downloading Seasons] %v/%v\n", ind+1, len(seasons))
-
 		episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySub)
 
-		Logf(LogLevel_Info, "[Downloading Season] Season %v - Episodes %v - %s\n", episodes[0].SeasonNumber, len(episodes), episodes[0].SeriesTitle)
+		Logf(LogLevel_Info, "Downloading Season %v - Episodes %v\n", episodes[0].SeasonNumber, len(episodes))
 
 		var err error
 		for index, episode := range episodes {
@@ -387,7 +385,7 @@ func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, pr
 				Title: episode.Title,
 			}
 
-			Logf(LogLevel_Info, "[Downloading Video] %v - %s\n", index+1, episode.Title)
+			Logf(LogLevel_Info, "Downloading Video %v - %s\n", index+1, episode.Title)
 
 			workDone, err = downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
 			if err != nil {
