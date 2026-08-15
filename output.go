@@ -105,5 +105,5 @@ func mergeEverything(videoFile string, audioTracks, subTracks []mediaTrack, outp
 		_ = os.Remove(sub.file)
 	}
 
-	fmt.Printf("\n[Info] Download finished! Output file: %s\n\n", outputFile)
+	Logf(LogLevel_Debug, "\nDownload finished! Output file: %s\n\n", outputFile)
 }

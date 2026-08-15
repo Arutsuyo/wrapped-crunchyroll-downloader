@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -29,10 +28,7 @@ func parseManifest(url string) *mpd.MPD {
 	}
 	mpd := new(mpd.MPD)
 	mpd.Decode(body)
-
-	if *debug {
-		fmt.Printf("\n%s\n", string(body))
-	}
+	Logf(LogLevel_Trace, "\n%s\n", string(body))
 
 	return mpd
 }
@@ -67,7 +63,7 @@ func getBaseUrl(set *mpd.AdaptationSet, isVideoSet bool, quality string) (*strin
 		return nil, nil
 	}
 	firstRep := set.Representations[0]
-	fmt.Printf("Audio quality %s not found, deferring to %s\n", quality, *firstRep.ID)
+	Logf(LogLevel_Warning, "Audio quality %s not found, deferring to %s\n", quality, *firstRep.ID)
 	return &firstRep.BaseURL[0].Value, firstRep.ID
 }
 
