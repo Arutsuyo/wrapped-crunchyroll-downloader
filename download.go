@@ -118,7 +118,7 @@ func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (s
 				}
 				results[job.index] = data
 				count := done.Add(1)
-				Logf(LogLevel_Debug, "\rDownloaded %v of %v segments (%v%%)", count, total, (100*count)/int64(total))
+				Logf(LogLevel_Debug, "Downloaded %v of %v segments (%v%%)\r", count, total, (100*count)/int64(total))
 			}
 		}()
 	}
@@ -245,7 +245,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	for _, locale := range audioLangs {
 		guid, ok := guidByLocale[locale]
 		if !ok {
-			err := fmt.Errorf("[Error] Audio locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
+			err := fmt.Errorf("Audio locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
 			return false, err
 		}
 		versions = append(versions, audioVersion{locale: locale, contentId: guid})
@@ -257,8 +257,6 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	// all if anything fails partway through.
 	activeStreams := map[string]string{}
 	defer func() {
-		print("Cleaning up...")
-
 		for id, sToken := range activeStreams {
 			deleteStream(id, sToken)
 		}
@@ -369,8 +367,13 @@ func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, pr
 		var err error
 		for index, episode := range episodes {
 			if index != 0 && workDone == true {
-				Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
-				time.Sleep(time.Second * time.Duration(*downloadThrottle))
+				Logf(LogLevel_Debug, "Delaying for %v seconds.\n . .", *downloadThrottle)
+				sleep_count := *downloadThrottle / 10
+				for i := 0; i < sleep_count; i++ {
+					time.Sleep(time.Second * time.Duration(10))
+					Logf(LogLevel_Debug, "Slept for %v of %v seconds.\r", (i+1) * 10, *downloadThrottle)
+				}
+				Logln(LogLevel_Debug, "\n")
 			}
 
 			info := EpisodeInfo{
@@ -395,7 +398,12 @@ func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, pr
 
 		if ind != len(seasons)-1 && workDone == true {
 			Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
-			time.Sleep(time.Second * time.Duration(*downloadThrottle))
+			sleep_count := *downloadThrottle / 10
+			for i := 0; i < sleep_count; i++ {
+				time.Sleep(time.Second * time.Duration(10))
+				Logf(LogLevel_Debug, "Slept for %v of %v seconds\r", (i+1) * 10, *downloadThrottle)
+			}
+			Logln(LogLevel_Debug, "\n")
 		}
 	}
 }
