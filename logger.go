@@ -23,7 +23,7 @@ var LogLevelName = map[LogLevel]string{
 var GlobalLogLevel = LogLevel_Info
 
 func Logf(level LogLevel, format string, a ...any) (n int, e error) {
-	if GlobalLogLevel <= level {
+	if GlobalLogLevel >= level {
 		return fmt.Printf(fmt.Sprintf("[%s] %s", LogLevelName[level], format), a...)
 	}
 
@@ -31,7 +31,7 @@ func Logf(level LogLevel, format string, a ...any) (n int, e error) {
 }
 
 func Logln(level LogLevel, a ...any) (n int, e error) {
-	if GlobalLogLevel <= level {
+	if GlobalLogLevel >= level {
 		return fmt.Println(fmt.Sprintf("[%s] %v", LogLevelName[level], fmt.Sprint(a...)))
 	}
 
@@ -39,7 +39,7 @@ func Logln(level LogLevel, a ...any) (n int, e error) {
 }
 
 func Log(level LogLevel, a ...any) (n int, e error) {
-	if GlobalLogLevel <= level {
+	if GlobalLogLevel >= level {
 		return fmt.Print(fmt.Sprintf("[%s] %v", LogLevelName[level], fmt.Sprint(a...)))
 	}
 
