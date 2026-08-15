@@ -1,0 +1,12 @@
+.idea
+.DS_Store
+.vscode/
+
+# Widevine stuff
+*.wvd
+client_id.bin
+private_key.pem
+
+crunchyroll-downloader
+
+*.mkv
