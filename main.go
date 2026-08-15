@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 )
 
 var (
@@ -20,6 +19,7 @@ var (
 	debug            = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
 	output           = flag.String("output-dir", ".", "Target output folder")
 	downloadThrottle = flag.Int("throttle", 60, "Throttling between downloads to avoid tripping resource limits. Only used when not specifying a specific episode")
+	dryRun           = flag.Bool("dry-run", false, "Act like you will download all of a series but doesn't actually query. Will force throttle to be <=1 if set.")
 )
 
 // parseLangs splits a comma-separated locale list, trimming spaces and dropping
@@ -71,10 +71,12 @@ func processUrl(url string) {
 		seasons := getSeasons(contentId, primaryAudio, primarySubs)
 
 		if *seasonNumber != 0 {
+			var seasonInd int
 			var seasonId string
-			for _, season := range seasons {
+			for index, season := range seasons {
 				if season.SeasonNumber == *seasonNumber {
 					seasonId = season.ID
+					seasonInd = index
 					break
 				}
 			}
@@ -83,20 +85,9 @@ func processUrl(url string) {
 				return
 			}
 
-			episodes := getSeasonEpisodes(seasonId, primaryAudio, primarySubs)
-			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
+			downloadSeasons(videoQuality, audioQuality, primaryAudio, primarySubs, audioLangs, subsLangs, []Season{seasons[seasonInd]}, *output)
 		} else {
-			for ind, season := range seasons {
-				fmt.Printf("[Info] Seasons %v\n", len(seasons))
-
-				episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySubs)
-				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
-				if ind != len(seasons)-1 {
-					fmt.Printf("\rSleeping for %v seconds...", *downloadThrottle)
-					time.Sleep(time.Second * time.Duration(*downloadThrottle))
-					fmt.Printf("\n")
-				}
-			}
+			downloadSeasons(videoQuality, audioQuality, primaryAudio, primarySubs, audioLangs, subsLangs, seasons, *output)
 		}
 	}
 }
@@ -124,6 +115,10 @@ func main() {
 	if *downloadThrottle < 0 {
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	if *dryRun && *downloadThrottle > 1 {
+		*downloadThrottle = 1
 	}
 
 	token = GetAccessToken(*etpRt)
