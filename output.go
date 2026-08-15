@@ -87,13 +87,13 @@ func mergeEverything(videoFile string, audioTracks, subTracks []mediaTrack, outp
 		"-metadata:g", "season_number="+fmt.Sprintf("%v", info.EpisodeMetadata.EpisodeNumber),
 		outputFile,
 	)
-
+	fmt.Printf("\n[Info] Invoking ffmpeg to combine streams...\n")
 	cmd := exec.Command("ffmpeg", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		_ = os.Remove(outputFile)
-		panic(fmt.Sprintf("ffmpeg failed: %s\n%s", err, stderr.String()))
+		panic(fmt.Sprintf("[Error] ffmpeg failed: %s\n%s", err, stderr.String()))
 	}
 
 	// Remove temporary files
@@ -105,5 +105,5 @@ func mergeEverything(videoFile string, audioTracks, subTracks []mediaTrack, outp
 		_ = os.Remove(sub.file)
 	}
 
-	fmt.Printf("\nDownload finished! Output file: %s\n\n", outputFile)
+	fmt.Printf("\n[Info] Download finished! Output file: %s\n\n", outputFile)
 }

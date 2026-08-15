@@ -45,11 +45,11 @@ func getEpisode(id string) Episode {
 		panic(err)
 	}
 	if err = json.Unmarshal(body, &episode); err != nil {
-		fmt.Printf("\n%s\n", string(body))
+		fmt.Printf("\n[Error] %s\n", string(body))
 		panic(err)
 	}
 	if episode.Error != nil {
-		print("Error:", *episode.Error)
+		print("[Error] ", *episode.Error)
 		os.Exit(1)
 	}
 

@@ -38,11 +38,11 @@ func processUrl(url string) {
 	contentType := strings.Split(url, "/")[3]
 	contentId := strings.Split(url, "/")[4]
 	if len(contentId) < 9 && len(contentId) > 14 {
-		fmt.Printf("Invalid URL format: %s\n", url)
+		fmt.Printf("[Error] Invalid URL format: %s\n", url)
 		return
 	}
 	if contentType != "watch" && contentType != "series" {
-		fmt.Printf("Invalid URL (must be /watch/ or /series/): %s\n", url)
+		fmt.Printf("[Error] Invalid URL (must be /watch/ or /series/): %s\n", url)
 		return
 	}
 
@@ -65,7 +65,7 @@ func processUrl(url string) {
 		info := getEpisodeInfo(contentId)
 		_, err := downloadEpisode(contentId, info, audioLangs, subsLangs, videoQuality, audioQuality, *output)
 		if err != nil {
-			fmt.Printf(err.Error())
+			fmt.Printf("[Error] %s\n", err.Error())
 		}
 	} else {
 		seasons := getSeasons(contentId, primaryAudio, primarySubs)
@@ -79,7 +79,7 @@ func processUrl(url string) {
 				}
 			}
 			if seasonId == "" {
-				fmt.Printf("This anime has no season %v!\n", *seasonNumber)
+				fmt.Printf("[Warning] This anime has no season %v!\n", *seasonNumber)
 				return
 			}
 
@@ -87,12 +87,14 @@ func processUrl(url string) {
 			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
 		} else {
 			for ind, season := range seasons {
-				fmt.Printf("[Downloading Seasons] %v/%v\n", ind, len(seasons))
+				fmt.Printf("[Info] Seasons %v\n", len(seasons))
 
 				episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySubs)
 				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, episodes, *output)
 				if ind != len(seasons)-1 {
+					fmt.Printf("\rSleeping for %v seconds...", *downloadThrottle)
 					time.Sleep(time.Second * time.Duration(*downloadThrottle))
+					fmt.Printf("\n")
 				}
 			}
 		}
@@ -110,12 +112,12 @@ func main() {
 	}
 
 	if fileinfo, err := os.Stat(*output); os.IsNotExist(err) || !fileinfo.IsDir() {
-		fmt.Println("You must specify a valid directory for outputting files.")
+		fmt.Println("[Error] You must specify a valid directory for outputting files.")
 		os.Exit(1)
 	}
 
 	if *etpRt == "" {
-		fmt.Println("You must specify the \"-etp-rt\" option!\n- Open Crunchyroll on your browser and log in.\n- Open developer tools (Ctrl+Shift+I), go to \"Application\", and then \"Cookies\".\n- The value of the \"ept_rt\" cookie is what you need to input into this option.")
+		fmt.Println("[Error] You must specify the \"-etp-rt\" option!\n- Open Crunchyroll on your browser and log in.\n- Open developer tools (Ctrl+Shift+I), go to \"Application\", and then \"Cookies\".\n- The value of the \"ept_rt\" cookie is what you need to input into this option.")
 		os.Exit(1)
 	}
 
@@ -129,7 +131,7 @@ func main() {
 	if *urlsFile != "" {
 		file, err := os.Open(*urlsFile)
 		if err != nil {
-			fmt.Printf("Failed to open URLs file: %s\n", err)
+			fmt.Printf("[Error] Failed to open URLs file: %s\n", err)
 			os.Exit(1)
 		}
 		defer file.Close()

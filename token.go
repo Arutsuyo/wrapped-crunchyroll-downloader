@@ -44,7 +44,7 @@ func GetAccessToken(etpRt string) string {
 	res, err := io.ReadAll(resp.Body)
 	var result CrunchyrollTokenResponse
 	if err := json.Unmarshal(res, &result); err != nil {
-		panic(fmt.Errorf("failed to get access token: %w", err))
+		panic(fmt.Errorf("[Error] failed to get access token: %w", err))
 	}
 
 	return result.AccessToken
