@@ -12,3 +12,4 @@ crunchyroll-downloader
 *.mkv
 crunchyroll-downloader
 crunchyroll-downloader.exe
+build.bat
