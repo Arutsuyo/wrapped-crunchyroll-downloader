@@ -222,6 +222,10 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		fmt.Printf("Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
 		return false, nil
 	}
+	if *dryRun {
+		fmt.Printf("[Dry Run] Downloaded %s - %s.\n", cleanSeriesTitle, cleanEpisodeTitle)
+		return true, nil
+	}
 
 	// Resolve each requested audio locale to its version GUID. Each dub is a
 	// separate playback stream with its own manifest, token and Widevine keys.
@@ -372,32 +376,45 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	return true, nil
 }
 
-func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs []string, episodes []SeasonEpisode, baseDirectory string) {
-	fmt.Printf("[Downloading Season] Season %v - Episodes %v - %s\n", episodes[0].SeasonNumber, len(episodes), episodes[0].SeriesTitle)
+func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, primarySub string, audioLangs, subsLangs []string, seasons []Season, baseDirectory string) {
 	workDone := true
-	var err error
-	for index, episode := range episodes {
-		if index != 0 && workDone == true {
+	for ind, season := range seasons {
+		fmt.Printf("[Downloading Seasons] %v/%v\n", ind+1, len(seasons))
+
+		episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySub)
+
+		fmt.Printf("[Downloading Season] Season %v - Episodes %v - %s\n", episodes[0].SeasonNumber, len(episodes), episodes[0].SeriesTitle)
+
+		var err error
+		for index, episode := range episodes {
+			if index != 0 && workDone == true {
+				fmt.Printf("Delaying for %v seconds.\n", *downloadThrottle)
+				time.Sleep(time.Second * time.Duration(*downloadThrottle))
+			}
+
+			info := EpisodeInfo{
+				EpisodeMetadata: EpisodeMetadata{
+					SeriesTitle:        episode.SeriesTitle,
+					SeasonNumber:       episode.SeasonNumber,
+					EpisodeNumber:      episode.EpisodeNumber,
+					AudioLocale:        episode.AudioLocale,
+					Versions:           episode.Versions,
+					AvailabilityStarts: episode.AvailabilityStarts,
+				},
+				Title: episode.Title,
+			}
+
+			fmt.Printf("[Downloading Video] %v - %s\n", index+1, episode.Title)
+
+			workDone, err = downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
+			if err != nil {
+				fmt.Printf(err.Error())
+			}
+		}
+
+		if ind != len(seasons)-1 && workDone == true {
+			fmt.Printf("Delaying for %v seconds.\n", *downloadThrottle)
 			time.Sleep(time.Second * time.Duration(*downloadThrottle))
-		}
-
-		info := EpisodeInfo{
-			EpisodeMetadata: EpisodeMetadata{
-				SeriesTitle:        episode.SeriesTitle,
-				SeasonNumber:       episode.SeasonNumber,
-				EpisodeNumber:      episode.EpisodeNumber,
-				AudioLocale:        episode.AudioLocale,
-				Versions:           episode.Versions,
-				AvailabilityStarts: episode.AvailabilityStarts,
-			},
-			Title: episode.Title,
-		}
-
-		fmt.Printf("[Downloading Video] %v - %s\n", index, episode.Title)
-
-		workDone, err = downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
-		if err != nil {
-			fmt.Printf(err.Error())
 		}
 	}
 }
