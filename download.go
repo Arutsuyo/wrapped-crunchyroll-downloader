@@ -201,6 +201,15 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		*videoQuality,
 	))
 
+	
+	if len(outputFile) > 175 {
+		var builder strings.Builder
+		builder.WriteString(outputFile[0:160])
+		builder.WriteString("...")
+		builder.WriteString(outputFile[len(outputFile)-12:])
+		outputFile = builder.String()
+	}
+
 	if _, err := os.Stat(outputFile); err == nil {
 		Logf(LogLevel_Info, "Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
 		return false, nil
@@ -261,7 +270,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 			deleteStream(id, sToken)
 		}
 		if r := recover(); r != nil {
-			print("[Warning] Recovered from error:", r)
+			print("[Error] Recovered from error:", r)
 			os.Exit(1)
 		}
 	}()
@@ -317,6 +326,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		// getLicense stores the keys in the global "keys" used by downloadParts,
 		// so audio for this version must be downloaded before the next license.
 		if err := getLicense(*pssh, version.contentId, episode.Token); err != nil {
+			Logln(LogLevel_Error, "[Error] getLicense for %s: %s", version.locale, err)
 			panic(fmt.Sprintf("[Error] getLicense for %s: %s", version.locale, err))
 		}
 
