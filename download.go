@@ -201,15 +201,6 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		*videoQuality,
 	))
 
-	
-	if len(outputFile) > 175 {
-		var builder strings.Builder
-		builder.WriteString(outputFile[0:160])
-		builder.WriteString("...")
-		builder.WriteString(outputFile[len(outputFile)-12:])
-		outputFile = builder.String()
-	}
-
 	if _, err := os.Stat(outputFile); err == nil {
 		Logf(LogLevel_Info, "Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
 		return false, nil
