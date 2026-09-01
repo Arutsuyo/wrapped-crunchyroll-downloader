@@ -30,7 +30,7 @@ func parseManifest(url string) *mpd.MPD {
 	mpd := new(mpd.MPD)
 	mpd.Decode(body)
 
-	if *debug {
+	if true {
 		fmt.Printf("\n%s\n", string(body))
 	}
 
