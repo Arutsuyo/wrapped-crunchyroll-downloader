@@ -11,8 +11,10 @@ import (
 type Episode struct {
 	// Dash manifest file URL
 	ManifestURL string `json:"url"`
-	// List of .ass files
+	// List of .ass files (translation-style subtitles)
 	Subtitles map[string]*Subtitle `json:"subtitles"`
+	// List of .vtt files (closed captions, transcribing the dub audio)
+	Captions map[string]*Subtitle `json:"captions"`
 	// Token to give to the Widevine CDM challenge
 	Token string `json:"token"`
 	// Error, `nil` if there's no error
@@ -22,7 +24,9 @@ type Episode struct {
 type Subtitle struct {
 	// Language represents a subtitle language in the "en-US" format
 	Language string `json:"language"`
-	// Direct URL to the .ass file
+	// Format of the file, e.g. "ass" or "vtt"
+	Format string `json:"format"`
+	// Direct URL to the subtitle/caption file
 	URL string `json:"url"`
 }
 
@@ -45,16 +49,15 @@ func getEpisode(id string) Episode {
 		panic(err)
 	}
 	if err = json.Unmarshal(body, &episode); err != nil {
-		Logf(LogLevel_Error, "\n%s\n", string(body))
 		panic(err)
 	}
 	if episode.Error != nil {
-		print("[Error] ", *episode.Error)
+		print("Error:", *episode.Error)
 		os.Exit(1)
 	}
 
 	if *debug {
-		Logf(LogLevel_Error, "\n%s\n", string(body))
+		fmt.Printf("\n%s\n", string(body))
 	}
 
 	return episode

@@ -10,7 +10,9 @@ private_key.pem
 crunchyroll-downloader
 
 *.mkv
-crunchyroll-downloader
+# Compiled binaries
+/crunchyroll-downloader
+*.exe
 crunchyroll-downloader.exe
 build.bat
 __debug_bin.exe

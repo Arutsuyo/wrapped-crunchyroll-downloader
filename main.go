@@ -12,6 +12,7 @@ var (
 	token            = ""
 	audioLang        = flag.String("audio-lang", "ja-JP", "Audio language(s), comma-separated for multiple (e.g. \"ja-JP,en-US\"). First is the default track")
 	subtitlesLang    = flag.String("subs-lang", "en-US", "Subtitle language(s), comma-separated for multiple (e.g. \"en-US,es-419\"). First is the default track")
+	ccLang        = flag.String("cc-lang", "", "Closed caption language(s), comma-separated for multiple (e.g. \"en-US\"). Downloaded in addition to --subs-lang, not instead of it")
 	videoQuality     = flag.String("video-quality", "1080p", "Video quality")
 	audioQuality     = flag.String("audio-quality", "192k", "Audio quality")
 	seasonNumber     = flag.Int("season", 0, "Season number. Not used if an episode link is entered")
@@ -39,11 +40,11 @@ func processUrl(url string) {
 	contentType := strings.Split(url, "/")[3]
 	contentId := strings.Split(url, "/")[4]
 	if len(contentId) < 9 && len(contentId) > 14 {
-		Logf(LogLevel_Error, "Invalid URL format: %s\n", url)
+		fmt.Printf("Invalid URL format: %s\n", url)
 		return
 	}
 	if contentType != "watch" && contentType != "series" {
-		Logf(LogLevel_Error, "Invalid URL (must be /watch/ or /series/): %s\n", url)
+		fmt.Printf("Invalid URL (must be /watch/ or /series/): %s\n", url)
 		return
 	}
 
@@ -52,6 +53,7 @@ func processUrl(url string) {
 		audioLangs = []string{"ja-JP"}
 	}
 	subsLangs := parseLangs(*subtitlesLang)
+	ccLangs := parseLangs(*ccLang)
 
 	// The season/series API endpoints take a single preferred locale; use the
 	// primary (first) requested one. All dub versions are still listed per
@@ -64,31 +66,32 @@ func processUrl(url string) {
 
 	if contentType == "watch" {
 		info := getEpisodeInfo(contentId)
-		_, err := downloadEpisode(contentId, info, audioLangs, subsLangs, videoQuality, audioQuality, *output)
-		if err != nil {
-			Logf(LogLevel_Error, err.Error())
-		}
+		downloadEpisode(contentId, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, *output)
 	} else {
 		seasons := getSeasons(contentId, primaryAudio, primarySubs)
 
 		if *seasonNumber != 0 {
-			var seasonInd int
 			var seasonId string
-			for index, season := range seasons {
+			for _, season := range seasons {
 				if season.SeasonNumber == *seasonNumber {
 					seasonId = season.ID
-					seasonInd = index
 					break
 				}
 			}
 			if seasonId == "" {
-				Logf(LogLevel_Warning, "This anime has no season %v!\n", *seasonNumber)
+				fmt.Printf("This anime has no season %v!\n", *seasonNumber)
 				return
 			}
 
-			downloadSeasons(videoQuality, audioQuality, primaryAudio, primarySubs, audioLangs, subsLangs, []Season{seasons[seasonInd]}, *output)
+			episodes := getSeasonEpisodes(seasonId, primaryAudio, primarySubs)
+			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, ccLangs, episodes, *output)
 		} else {
-			downloadSeasons(videoQuality, audioQuality, primaryAudio, primarySubs, audioLangs, subsLangs, seasons, *output)
+			print("No season number specified, downloading all seasons...\n")
+
+			for _, season := range seasons {
+				episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySubs)
+				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, ccLangs, episodes, *output)
+			}
 		}
 	}
 }
@@ -103,13 +106,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if fileinfo, err := os.Stat(*output); os.IsNotExist(err) || !fileinfo.IsDir() {
-		Logln(LogLevel_Error, "You must specify a valid directory for outputting files.")
-		os.Exit(1)
-	}
-
 	if *etpRt == "" {
-		Logln(LogLevel_Error, "You must specify the \"-etp-rt\" option!\n- Open Crunchyroll on your browser and log in.\n- Open developer tools (Ctrl+Shift+I), go to \"Application\", and then \"Cookies\".\n- The value of the \"ept_rt\" cookie is what you need to input into this option.")
+		fmt.Println("You must specify the \"-etp-rt\" option!\n- Open Crunchyroll on your browser and log in.\n- Open developer tools (Ctrl+Shift+I), go to \"Application\", and then \"Cookies\".\n- The value of the \"ept_rt\" cookie is what you need to input into this option.")
 		os.Exit(1)
 	}
 
@@ -146,7 +144,7 @@ func main() {
 	if *urlsFile != "" {
 		file, err := os.Open(*urlsFile)
 		if err != nil {
-			Logf(LogLevel_Error, "Failed to open URLs file: %s\n", err)
+			fmt.Printf("Failed to open URLs file: %s\n", err)
 			os.Exit(1)
 		}
 		defer file.Close()
@@ -160,9 +158,9 @@ func main() {
 			}
 		}
 
-		Logf(LogLevel_Info, "Found %d URLs to download\n\n", len(urls))
+		fmt.Printf("Found %d URLs to download\n\n", len(urls))
 		for i, u := range urls {
-			Logf(LogLevel_Info, "=== [%d/%d] %s ===\n", i+1, len(urls), u)
+			fmt.Printf("=== [%d/%d] %s ===\n", i+1, len(urls), u)
 			processUrl(u)
 			fmt.Println()
 		}

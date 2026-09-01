@@ -67,9 +67,12 @@ func downloadPart(url string) ([]byte, error) {
 	return nil, fmt.Errorf("failed after %d retries", maxRetries)
 }
 
-func getFilename(set *mpd.AdaptationSet) string {
+func getFilename(set *mpd.AdaptationSet, subExt string) string {
 	if set == nil {
-		f, _ := os.CreateTemp("", "crdl-subs-*.ass")
+		if subExt == "" {
+			subExt = "ass"
+		}
+		f, _ := os.CreateTemp("", "crdl-subs-*."+subExt)
 		return f.Name()
 	}
 	for _, representation := range set.Representations {
@@ -84,78 +87,177 @@ func getFilename(set *mpd.AdaptationSet) string {
 	return ""
 }
 
-type segmentJob struct {
-	index int
-	url   string
+// maxBufferedSegments bounds how many segments may be resident in memory at
+// once, counting both in-flight downloads and payloads still waiting to be
+// written. Without it the workers race arbitrarily far ahead of the sequential
+// writer whenever an early segment is slow, which is what exhausted memory on
+// movie-length titles.
+const maxBufferedSegments = maxWorkers * 2
+
+// streamSegments fetches every url concurrently but writes the payloads to w
+// strictly in index order, releasing each one as soon as it has been written.
+// Peak memory is therefore bounded by maxBufferedSegments rather than growing
+// with the length of the media.
+//
+// onProgress, if non-nil, is called with the running count of fetched segments.
+func streamSegments(w io.Writer, urls []string, fetch func(string) ([]byte, error), onProgress func(fetched int64)) error {
+	total := len(urls)
+	if total == 0 {
+		return nil
+	}
+
+	var (
+		mu      sync.Mutex
+		cond    = sync.NewCond(&mu)
+		payload = make([][]byte, total)
+		ready   = make([]bool, total)
+		failure error
+	)
+
+	abort := make(chan struct{})
+	var abortOnce sync.Once
+	fail := func(err error) {
+		mu.Lock()
+		if failure == nil {
+			failure = err
+		}
+		mu.Unlock()
+		cond.Broadcast()
+		abortOnce.Do(func() { close(abort) })
+	}
+
+	// A worker claims a slot before claiming an index, so the indices held at
+	// any moment are always the lowest outstanding ones. That ordering is what
+	// guarantees the writer's next index is always held by a live worker and
+	// can never be starved by later segments hogging every slot.
+	slots := make(chan struct{}, maxBufferedSegments)
+	var next atomic.Int64
+	var fetched atomic.Int64
+
+	var wg sync.WaitGroup
+	for n := 0; n < maxWorkers; n++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case slots <- struct{}{}:
+				case <-abort:
+					return
+				}
+
+				i := int(next.Add(1) - 1)
+				if i >= total {
+					<-slots
+					return
+				}
+
+				data, err := fetch(urls[i])
+				if err != nil {
+					fail(err)
+					return
+				}
+
+				mu.Lock()
+				payload[i] = data
+				ready[i] = true
+				mu.Unlock()
+				cond.Broadcast()
+
+				if onProgress != nil {
+					onProgress(fetched.Add(1))
+				}
+			}
+		}()
+	}
+
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for i := 0; i < total; i++ {
+			mu.Lock()
+			for !ready[i] && failure == nil {
+				cond.Wait()
+			}
+			if failure != nil {
+				mu.Unlock()
+				return
+			}
+			data := payload[i]
+			payload[i] = nil
+			mu.Unlock()
+
+			_, err := w.Write(data)
+			<-slots
+			if err != nil {
+				fail(fmt.Errorf("writing segment %d: %w", i, err))
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	<-writerDone
+
+	mu.Lock()
+	defer mu.Unlock()
+	return failure
 }
 
 func downloadParts(baseUrl, representationId *string, set *mpd.AdaptationSet) (string, error) {
 	initUrl := buildUrl(*baseUrl, *representationId, *set.SegmentTemplate.Initialization, nil)
 	initData, err := downloadPart(initUrl)
 	if err != nil {
-		return "", fmt.Errorf("failed to download initialization segment: %w", err)
+		return "", err
 	}
 
 	timeline := expandTimeline(set.SegmentTemplate.SegmentTimeline.S, 1)
 	total := len(timeline)
-	results := make([][]byte, total)
-	var downloadErr error
-	var errOnce sync.Once
-	var done atomic.Int64
-
-	jobs := make(chan segmentJob, total)
-	var wg sync.WaitGroup
-
-	for w := 0; w < maxWorkers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobs {
-				data, err := downloadPart(job.url)
-				if err != nil {
-					errOnce.Do(func() { downloadErr = fmt.Errorf("[Error] segment download failed: %w", err) })
-					return
-				}
-				results[job.index] = data
-				count := done.Add(1)
-				Logf(LogLevel_Debug, "Downloaded %v of %v segments (%v%%)\r", count, total, (100*count)/int64(total))
-			}
-		}()
-	}
-
+	urls := make([]string, total)
 	for i, item := range timeline {
-		url := buildUrl(*baseUrl, *representationId, *set.SegmentTemplate.Media, &item)
-		jobs <- segmentJob{index: i, url: url}
-	}
-	close(jobs)
-	wg.Wait()
-
-	if downloadErr != nil {
-		return "", downloadErr
+		urls[i] = buildUrl(*baseUrl, *representationId, *set.SegmentTemplate.Media, &item)
 	}
 
-	Logln(LogLevel_Info, "\nFinished downloading segments!")
+	filename := getFilename(set, "")
+	encPath := filename + ".enc"
+	encFile, err := os.Create(encPath)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(encPath)
+	defer encFile.Close()
 
-	var parts []byte
-	parts = append(parts, initData...)
-	for _, data := range results {
-		parts = append(parts, data...)
+	if _, err = encFile.Write(initData); err != nil {
+		return "", fmt.Errorf("writing init segment: %w", err)
 	}
 
-	filename := getFilename(set)
+	err = streamSegments(encFile, urls, downloadPart, func(fetched int64) {
+		fmt.Printf("\rDownloaded %v of %v segments (%v%%)", fetched, total, (100*fetched)/int64(total))
+	})
+	if err != nil {
+		return "", err
+	}
+
+	fmt.Println("\nFinished downloading!")
+
+	if _, err = encFile.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("rewinding %s: %w", encPath, err)
+	}
+
 	file, err := os.Create(filename)
 	if err != nil {
-		return "", fmt.Errorf("[Error] failed to create output file: %w", err)
+		return "", err
 	}
 	defer file.Close()
-	if err = decryptMP4(parts, keys, file); err != nil {
-		return "", fmt.Errorf("widevine.DecryptMP4Auto: %w", err)
+
+	if err = decryptMP4(initData, encFile, keys, file); err != nil {
+		return "", fmt.Errorf("decryptMP4: %w", err)
 	}
 
 	return filename, nil
 }
 
-func downloadSubs(url string) string {
+func downloadSubs(url, format string) string {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		panic(err)
@@ -174,7 +276,7 @@ func downloadSubs(url string) string {
 		panic(err)
 	}
 
-	filename := getFilename(nil)
+	filename := getFilename(nil, format)
 	file, err := os.Create(filename)
 	if err != nil {
 		panic(err)
@@ -185,7 +287,7 @@ func downloadSubs(url string) string {
 	return filename
 }
 
-func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs []string, videoQuality, audioQuality *string, baseDirectory string) (bool, error) {
+func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs, ccLangs []string, videoQuality, audioQuality *string, baseDirectory string) (bool) {
 	cleanSeriesTitle := sanitizeFilename(info.EpisodeMetadata.SeriesTitle)
 	cleanEpisodeTitle := sanitizeFilename(info.Title)
 
@@ -202,12 +304,13 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	))
 
 	if _, err := os.Stat(outputFile); err == nil {
-		Logf(LogLevel_Info, "Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
-		return false, nil
+		fmt.Printf("Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
+		return false
 	}
+	fmt.Printf("Attempting to download: %s\n", outputFile)
 	if *dryRun {
 		Logf(LogLevel_Info, "[Dry Run] Downloaded %s - %s.\n", cleanSeriesTitle, cleanEpisodeTitle)
-		return true, nil
+		return true
 	}
 
 	// Resolve each requested audio locale to its version GUID. Each dub is a
@@ -245,29 +348,30 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	for _, locale := range audioLangs {
 		guid, ok := guidByLocale[locale]
 		if !ok {
-			err := fmt.Errorf("Audio locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
-			return false, err
+			fmt.Printf("! Audio locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
+			return false
 		}
 		versions = append(versions, audioVersion{locale: locale, contentId: guid})
 	}
 
-	Logf(LogLevel_Debug, "Downloading: %s (S%02vE%02v) from %s\n", info.Title, info.EpisodeMetadata.SeasonNumber, info.EpisodeMetadata.EpisodeNumber, info.EpisodeMetadata.SeriesTitle)
+	fmt.Printf("Downloading: %s (S%02vE%02v) from %s\n", info.Title, info.EpisodeMetadata.SeasonNumber, info.EpisodeMetadata.EpisodeNumber, info.EpisodeMetadata.SeriesTitle)
 
 	// activeStreams tracks every playback token we open so we can release them
 	// all if anything fails partway through.
 	activeStreams := map[string]string{}
 	defer func() {
+		print("Cleaning up...")
+
 		for id, sToken := range activeStreams {
 			deleteStream(id, sToken)
 		}
 		if r := recover(); r != nil {
-			print("[Error] Recovered from error:", r)
-			os.Exit(1)
+			fmt.Println("Recovered from error:", r)
 		}
 	}()
 
 	// Fetch the first version's playback first so we can validate subtitle
-	// availability before downloading anything heavy.
+	// and caption availability before downloading anything heavy.
 	firstEpisode := getEpisode(versions[0].contentId)
 	activeStreams[versions[0].contentId] = firstEpisode.Token
 
@@ -280,23 +384,54 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		}
 		sort.Strings(subsLangs)
 	}
+	if len(ccLangs) == 1 && ccLangs[0] == "all" {
+		ccLangs = make([]string, 0, len(firstEpisode.Captions))
+		for locale, cc := range firstEpisode.Captions {
+			if cc != nil && cc.URL != "" {
+				ccLangs = append(ccLangs, locale)
+			}
+		}
+		sort.Strings(ccLangs)
+	}
 
-	Logf(LogLevel_Trace, "Audio locales: %s | Subtitle locales: %s\n", strings.Join(audioLangs, ", "), strings.Join(subsLangs, ", "))
+	fmt.Printf("Audio locales: %s | Subtitle locales: %s | CC locales: %s\n",
+		strings.Join(audioLangs, ", "), strings.Join(subsLangs, ", "), strings.Join(ccLangs, ", "))
 
 	for _, locale := range subsLangs {
 		if firstEpisode.Subtitles[locale] == nil {
-			err := fmt.Errorf("[Error] Subtitle locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
-			return false, err
+			fmt.Printf("! Subtitle locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
+			return false
+		}
+	}
+	for _, locale := range ccLangs {
+		if firstEpisode.Captions[locale] == nil {
+			fmt.Printf("! Closed caption locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
+			return false
 		}
 	}
 
 	var subTracks []mediaTrack
 	for _, locale := range subsLangs {
-		Logf(LogLevel_Trace, "Downloading subtitles for %s...\n", trackTitle(locale))
-		subTracks = append(subTracks, mediaTrack{file: downloadSubs(firstEpisode.Subtitles[locale].URL), locale: locale})
+		fmt.Printf("Downloading subtitles for %s...\n", trackTitle(locale))
+		sub := firstEpisode.Subtitles[locale]
+		subTracks = append(subTracks, mediaTrack{
+			file:   downloadSubs(sub.URL, sub.Format),
+			locale: locale,
+			format: sub.Format,
+		})
+	}
+	for _, locale := range ccLangs {
+		fmt.Printf("Downloading closed captions for %s...\n", trackTitle(locale))
+		cc := firstEpisode.Captions[locale]
+		subTracks = append(subTracks, mediaTrack{
+			file:   downloadSubs(cc.URL, cc.Format),
+			locale: locale,
+			format: cc.Format,
+			isCC:   true,
+		})
 	}
 	if len(subTracks) > 0 {
-		Logln(LogLevel_Debug, "Downloaded subtitles!")
+		fmt.Println("Downloaded subtitles!")
 	}
 
 	var videoFile string
@@ -312,20 +447,19 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		manifest := parseManifest(episode.ManifestURL)
 		pssh := getPssh(manifest)
 		if pssh == nil {
-			panic("[Error] PSSH not found")
+			panic("PSSH not found")
 		}
 		// getLicense stores the keys in the global "keys" used by downloadParts,
 		// so audio for this version must be downloaded before the next license.
 		if err := getLicense(*pssh, version.contentId, episode.Token); err != nil {
-			Logln(LogLevel_Error, "[Error] getLicense for %s: %s", version.locale, err)
-			panic(fmt.Sprintf("[Error] getLicense for %s: %s", version.locale, err))
+			panic(fmt.Sprintf("getLicense for %s: %s", version.locale, err))
 		}
 
 		audioSet := manifest.Period[0].AdaptationSets[1]
-		Logf(LogLevel_Trace, "Downloading %s audio...\n", trackTitle(version.locale))
+		fmt.Printf("Downloading %s audio...\n", trackTitle(version.locale))
 		audioBaseUrl, audioRepresentationId := getBaseUrl(audioSet, false, *audioQuality)
 		if audioBaseUrl == nil {
-			panic(fmt.Sprintf("[Error] failed to get the audio base URL for %s, maybe the audio quality you entered is wrong?", version.locale))
+			panic(fmt.Sprintf("failed to get the audio base URL for %s, maybe the audio quality you entered is wrong?", version.locale))
 		}
 		audioFile, err := downloadParts(audioBaseUrl, audioRepresentationId, audioSet)
 		if err != nil {
@@ -337,10 +471,10 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		// the first version's keys (already loaded above).
 		if i == 0 {
 			videoSet := manifest.Period[0].AdaptationSets[0]
-			Logln(LogLevel_Trace, "Downloading video...")
+			fmt.Println("Downloading video...")
 			baseUrl, representationId := getBaseUrl(videoSet, true, *videoQuality)
 			if baseUrl == nil {
-				panic("[Error] failed to get the video base URL, maybe the video quality you entered is wrong?")
+				panic("failed to get the video base URL, maybe the video quality you entered is wrong?")
 			}
 			videoFile, err = downloadParts(baseUrl, representationId, videoSet)
 			if err != nil {
@@ -349,62 +483,41 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		}
 
 		if success := deleteStream(version.contentId, episode.Token); !success {
-			print("[Error] Failed to remove the player stream, you will probably have issues downloading other episodes.\n")
+			print("Failed to remove the player stream, you will probably have issues downloading other episodes.\n")
 		}
 		delete(activeStreams, version.contentId)
 	}
 
 	mergeEverything(videoFile, audioTracks, subTracks, outputFile, info)
-	return true, nil
+	return true
 }
 
-func downloadSeasons(videoQuality, audioQuality *string, primaryAudio string, primarySub string, audioLangs, subsLangs []string, seasons []Season, baseDirectory string) {
-	workDone := true
-	for ind, season := range seasons {
-		episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySub)
+func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs, ccLangs []string, episodes []SeasonEpisode, baseDirectory string) {
+	fmt.Printf("Downloading season %v of %s (%v episodes)\n\n", episodes[0].SeasonNumber, episodes[0].SeriesTitle, len(episodes))
 
-		Logf(LogLevel_Info, "Downloading Season %v - Episodes %v\n", episodes[0].SeasonNumber, len(episodes))
-
-		var err error
-		for index, episode := range episodes {
-			if index != 0 && workDone == true {
-				Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
-				sleep_count := *downloadThrottle / 10
-				for i := 0; i < sleep_count; i++ {
-					time.Sleep(time.Second * time.Duration(10))
-					Logf(LogLevel_Debug, "Slept for %v of %v seconds\r", (i+1)*10, *downloadThrottle)
-				}
-				Logln(LogLevel_Debug, "\n")
-			}
-
-			info := EpisodeInfo{
-				EpisodeMetadata: EpisodeMetadata{
-					SeriesTitle:        episode.SeriesTitle,
-					SeasonNumber:       episode.SeasonNumber,
-					EpisodeNumber:      episode.EpisodeNumber,
-					AudioLocale:        episode.AudioLocale,
-					Versions:           episode.Versions,
-					AvailabilityStarts: episode.AvailabilityStarts,
-				},
-				Title: episode.Title,
-			}
-
-			Logf(LogLevel_Info, "Downloading Video %v - %s\n", index+1, episode.Title)
-
-			workDone, err = downloadEpisode(episode.ID, info, audioLangs, subsLangs, videoQuality, audioQuality, baseDirectory)
-			if err != nil {
-				Logf(LogLevel_Error, err.Error())
-			}
+	for _, episode := range episodes {
+		info := EpisodeInfo{
+			EpisodeMetadata: EpisodeMetadata{
+				SeriesTitle:        episode.SeriesTitle,
+				SeasonNumber:       episode.SeasonNumber,
+				EpisodeNumber:      episode.EpisodeNumber,
+				AudioLocale:        episode.AudioLocale,
+				Versions:           episode.Versions,
+				AvailabilityStarts: episode.AvailabilityStarts,
+			},
+			Title: episode.Title,
 		}
 
-		if ind != len(seasons)-1 && workDone == true {
+		workDone := downloadEpisode(episode.ID, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, baseDirectory)
+		
+		if workDone {
 			Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
 			sleep_count := *downloadThrottle / 10
 			for i := 0; i < sleep_count; i++ {
 				time.Sleep(time.Second * time.Duration(10))
 				Logf(LogLevel_Debug, "Slept for %v of %v seconds\r", (i+1)*10, *downloadThrottle)
 			}
-			Logln(LogLevel_Debug, "\n")
+			fmt.Printf("\n\n")
 		}
 	}
 }
