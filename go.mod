@@ -1,6 +1,6 @@
 module crunchyroll-downloader
 
-go 1.26.0
+go 1.25
 
 require (
 	github.com/Eyevinn/mp4ff v0.48.0
@@ -10,13 +10,6 @@ require (
 )
 
 require (
-	filippo.io/nistec v0.0.4 // indirect
-	github.com/emmansun/gmsm v0.44.1 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-)
-
-require (
-	41.neocities.org/diana v1.10.2
 	github.com/chmike/cmac-go v1.1.0 // indirect
 	github.com/unki2aut/go-xsd-types v0.0.0-20200220223938-30e5405398f8 // indirect
 	google.golang.org/protobuf v1.36.2 // indirect
