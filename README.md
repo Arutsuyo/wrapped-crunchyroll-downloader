@@ -56,8 +56,6 @@ Usage of ./crunchyroll-downloader:
         URL of the episode/season to download
   -video-quality string
         Video quality (default "1080p")
-  -output-dir string
-      | Path to a directory to store downloaded files (default ".")
 ```
 
 Ex: to download the first season of *Hell's Paradise*:

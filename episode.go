@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -46,6 +45,8 @@ type Episode struct {
 	Token string `json:"token"`
 	// Error, empty when there's no error
 	Error EpisodeError `json:"error"`
+	// Reason explains the error (e.g. "Too many requests") when present
+	Reason string `json:"reason"`
 }
 
 type Subtitle struct {
@@ -57,37 +58,44 @@ type Subtitle struct {
 	URL string `json:"url"`
 }
 
-func getEpisode(id string) Episode {
+func getEpisode(id string) (Episode, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://www.crunchyroll.com/playback/v3/%s/web/firefox/play", id), nil)
 	if err != nil {
-		panic(err)
+		return Episode{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0")
 	resp, err := DoRequest(req)
 	if err != nil {
-		panic(err)
+		return Episode{}, err
 	}
 	defer resp.Body.Close()
 
 	var episode Episode
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		return Episode{}, err
 	}
 	if err = json.Unmarshal(body, &episode); err != nil {
-		panic(err)
+		return Episode{}, err
 	}
 	if episode.Error != "" {
-		fmt.Printf("Error: %s\n", episode.Error)
-		os.Exit(1)
+		fmt.Printf("Error: %s", episode.Error)
+		if episode.Reason != "" {
+			fmt.Printf(" (%s)", episode.Reason)
+		}
+		fmt.Println()
+		if strings.HasPrefix(string(episode.Error), "429") {
+			fmt.Println("Crunchyroll is rate-limiting this account. Wait a while before retrying, or use a different account.")
+		}
+		return Episode{}, fmt.Errorf("playback error: %s", episode.Error)
 	}
 
 	if *debug {
 		fmt.Printf("\n%s\n", string(body))
 	}
 
-	return episode
+	return episode, nil
 }
 
 type EpisodeMetadataResponse struct {
@@ -140,18 +148,24 @@ func getEpisodeInfo(id string) EpisodeInfo {
 	return info.Data[0]
 }
 
-// deleteStream removes the stream to make Crunchyroll think we "left" the playback
-func deleteStream(contentId, sToken string) bool {
+// deleteStream removes the stream to make Crunchyroll think we "left" the playback.
+// It returns an error rather than panicking so a transient network failure during
+// cleanup can't crash the whole process or strand other streams mid-teardown.
+func deleteStream(contentId, sToken string) error {
 	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("https://www.crunchyroll.com/playback/v1/token/%s/%s", contentId, sToken), nil)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0")
 	resp, err := DoRequest(req)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	defer resp.Body.Close()
 
-	return resp.StatusCode == http.StatusNoContent
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	return nil
 }

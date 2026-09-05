@@ -119,34 +119,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *downloadThrottle < 0 {
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	if *dryRun && *downloadThrottle > 1 {
-		*downloadThrottle = 1
-	}
-
-	if *verbosity < 0 || *verbosity >= 5 {
-
-	}
-	switch *verbosity {
-	case 0:
-		GlobalLogLevel = LogLevel_Error
-	case 1:
-		GlobalLogLevel = LogLevel_Warning
-	case 2:
-		GlobalLogLevel = LogLevel_Info
-	case 3:
-		GlobalLogLevel = LogLevel_Debug
-	case 4:
-		GlobalLogLevel = LogLevel_Trace
-	default:
-		flag.Usage()
-		os.Exit(1)
-	}
-
 	token = GetAccessToken(*etpRt)
 
 	if *urlsFile != "" {
