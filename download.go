@@ -483,6 +483,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		ep, err := getEpisode(version.contentId)
 		if err != nil {
 			panic(err)
+			
 		}
 		episodes[i] = ep
 		streamsMu.Lock()
@@ -684,11 +685,11 @@ func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs, c
 		workDone := downloadEpisode(episode.ID, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, baseDirectory)
 		
 		if workDone {
-			Logf(LogLevel_Debug, "Delaying for %v seconds.\n", *downloadThrottle)
+			fmt.Printf("Delaying for %v seconds.\n", *downloadThrottle)
 			sleep_count := *downloadThrottle / 10
 			for i := 0; i < sleep_count; i++ {
 				time.Sleep(time.Second * time.Duration(10))
-				Logf(LogLevel_Debug, "Slept for %v of %v seconds\r", (i+1)*10, *downloadThrottle)
+				fmt.Printf("Slept for %v of %v seconds\r", (i+1)*10, *downloadThrottle)
 			}
 			fmt.Printf("\n\n")
 		}
