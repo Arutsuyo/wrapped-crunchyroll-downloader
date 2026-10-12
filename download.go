@@ -402,10 +402,6 @@ func requestsAll(langs []string) bool {
 // offered. Lists without ALL are returned unchanged, including duplicates and
 // missing locales, so their existing handling remains intact.
 func expandLangs(requested, available []string, preferred string) []string {
-	if !requestsAll(requested) {
-		return requested
-	}
-
 	selected := make([]string, 0, len(requested)+len(available))
 	seen := make(map[string]bool, len(requested)+len(available))
 	for _, locale := range requested {
@@ -479,14 +475,25 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	if _, err := os.Stat(filepath.Join(baseDirectory, cleanSeriesTitle)); err != nil {
 		_ = os.MkdirAll(filepath.Join(baseDirectory, cleanSeriesTitle), 0777)
 	}
-
+	
 	outputFile := filepath.Join(baseDirectory, cleanSeriesTitle, fmt.Sprintf("%s S%02dE%02d %s.mkv",
 		cleanSeriesTitle,
 		info.EpisodeMetadata.SeasonNumber,
 		info.EpisodeMetadata.EpisodeNumber,
 		cleanEpisodeTitle,
 	))
-
+	outputFileAlt := filepath.Join(baseDirectory, cleanSeriesTitle, fmt.Sprintf("%s S%02dE%02d - %s [%s].mkv",
+		cleanSeriesTitle,
+		info.EpisodeMetadata.SeasonNumber,
+		info.EpisodeMetadata.EpisodeNumber,
+		cleanEpisodeTitle,
+		*videoQuality,
+	))
+	
+	if _, statErr := os.Stat(outputFileAlt); statErr == nil {
+		fmt.Printf("Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
+		return
+	}
 	if _, statErr := os.Stat(outputFile); statErr == nil {
 		fmt.Printf("Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
 		return
@@ -495,6 +502,17 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	// Resolve each requested audio locale to its version GUID. Each dub is a
 	// separate playback stream with its own manifest, token and Widevine keys.
 	guidByLocale := buildGuidByLocale(info, baseContentId)
+	
+	// Check for explicit languages requested
+	if !requestsAll(audioLangs) {
+		for _, locale := range audioLangs {
+			_, ok := guidByLocale[locale]
+			if !ok {
+				fmt.Printf("Warning: None of the requested audio locales are available for episode %v, aborting this episode.\n", info.EpisodeMetadata.EpisodeNumber)
+				return
+			}
+		}
+	}
 
 	availableAudio := make([]string, 0, len(guidByLocale))
 	for locale, guid := range guidByLocale {
@@ -502,6 +520,8 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 			availableAudio = append(availableAudio, locale)
 		}
 	}
+
+	// Add available languages
 	audioLangs = expandLangs(audioLangs, availableAudio, "ja-JP")
 
 	type audioVersion struct {
