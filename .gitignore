@@ -8,7 +8,6 @@ client_id.bin
 private_key.pem
 
 crunchyroll-downloader
-
 *.mkv
 # Compiled binaries
 /crunchyroll-downloader

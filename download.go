@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -352,18 +353,18 @@ func buildGuidByLocale(info EpisodeInfo, baseContentId string) map[string]string
 // audio version of an episode. Subtitles (translation scripts) are usually
 // identical across versions, but captions (closed captions) transcribe a
 // specific dub and only appear on that version's playback. Taking the first
-// non-nil entry per locale preserves the union without duplication.
+// downloadable entry per locale preserves the union without duplication.
 func mergeSubtitleAndCaptions(episodes []Episode) (subtitles, captions map[string]*Subtitle) {
 	subtitles = map[string]*Subtitle{}
 	captions = map[string]*Subtitle{}
 	for _, ep := range episodes {
 		for locale, sub := range ep.Subtitles {
-			if sub != nil && subtitles[locale] == nil {
+			if sub != nil && (subtitles[locale] == nil || subtitles[locale].URL == "") {
 				subtitles[locale] = sub
 			}
 		}
 		for locale, cc := range ep.Captions {
-			if cc != nil && captions[locale] == nil {
+			if cc != nil && (captions[locale] == nil || captions[locale].URL == "") {
 				captions[locale] = cc
 			}
 		}
@@ -387,7 +388,91 @@ func filterAvailableLangs(langs []string, available map[string]*Subtitle, kind s
 	return filtered
 }
 
-func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs, ccLangs []string, videoQuality, audioQuality *string, baseDirectory string) (bool) {
+func requestsAll(langs []string) bool {
+	for _, locale := range langs {
+		if strings.EqualFold(locale, "all") {
+			return true
+		}
+	}
+	return false
+}
+
+// expandLangs keeps explicitly requested locales first, then adds available
+// locales in stable order. With ALL alone, the usual default locale leads when
+// offered. Lists without ALL are returned unchanged, including duplicates and
+// missing locales, so their existing handling remains intact.
+func expandLangs(requested, available []string, preferred string) []string {
+	if !requestsAll(requested) {
+		return requested
+	}
+
+	selected := make([]string, 0, len(requested)+len(available))
+	seen := make(map[string]bool, len(requested)+len(available))
+	for _, locale := range requested {
+		if strings.EqualFold(locale, "all") || seen[locale] {
+			continue
+		}
+		selected = append(selected, locale)
+		seen[locale] = true
+	}
+	if len(selected) == 0 {
+		for _, locale := range available {
+			if locale == preferred {
+				selected = append(selected, locale)
+				seen[locale] = true
+				break
+			}
+		}
+	}
+	sort.Strings(available)
+	for _, locale := range available {
+		if !seen[locale] {
+			selected = append(selected, locale)
+			seen[locale] = true
+		}
+	}
+	return selected
+}
+
+// additionalVersionGUIDs finds unselected dubs whose playback may offer other
+// subtitles or captions. Sorting by locale keeps the first merged track for a
+// repeated language stable across runs.
+func additionalVersionGUIDs(guidByLocale map[string]string, selected []string) []string {
+	seen := make(map[string]bool, len(selected))
+	for _, guid := range selected {
+		seen[guid] = true
+	}
+	locales := make([]string, 0, len(guidByLocale))
+	for locale := range guidByLocale {
+		if locale != "" {
+			locales = append(locales, locale)
+		}
+	}
+	sort.Strings(locales)
+	var guids []string
+	for _, locale := range locales {
+		guid := guidByLocale[locale]
+		if guid != "" && !seen[guid] {
+			guids = append(guids, guid)
+			seen[guid] = true
+		}
+	}
+	return guids
+}
+
+// availableSubtitleLangs excludes entries with no downloadable file from ALL.
+// Explicit requests still use filterAvailableLangs and retain their old rules.
+func availableSubtitleLangs(tracks map[string]*Subtitle) []string {
+	available := make([]string, 0, len(tracks))
+	for locale, track := range tracks {
+		if locale != "" && track != nil && track.URL != "" {
+			available = append(available, locale)
+		}
+	}
+	return available
+}
+
+func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLangs, ccLangs []string, videoQuality, audioQuality *string, baseDirectory string) (err error) {
 	cleanSeriesTitle := sanitizeFilename(info.EpisodeMetadata.SeriesTitle)
 	cleanEpisodeTitle := sanitizeFilename(info.Title)
 
@@ -395,39 +480,29 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		_ = os.MkdirAll(filepath.Join(baseDirectory, cleanSeriesTitle), 0777)
 	}
 
-	outputFile := filepath.Join(baseDirectory, cleanSeriesTitle, fmt.Sprintf("%s S%02dE%02d - %s [%s].mkv",
+	outputFile := filepath.Join(baseDirectory, cleanSeriesTitle, fmt.Sprintf("%s S%02dE%02d %s.mkv",
 		cleanSeriesTitle,
 		info.EpisodeMetadata.SeasonNumber,
 		info.EpisodeMetadata.EpisodeNumber,
 		cleanEpisodeTitle,
-		*videoQuality,
 	))
 
-	if _, err := os.Stat(outputFile); err == nil {
+	if _, statErr := os.Stat(outputFile); statErr == nil {
 		fmt.Printf("Episode %v is already downloaded, skipping...\n", info.EpisodeMetadata.EpisodeNumber)
-		return false
+		return
 	}
 
 	// Resolve each requested audio locale to its version GUID. Each dub is a
 	// separate playback stream with its own manifest, token and Widevine keys.
 	guidByLocale := buildGuidByLocale(info, baseContentId)
 
-	if len(audioLangs) == 1 && audioLangs[0] == "all" {
-		audioLangs = make([]string, 0, len(guidByLocale))
-		if primaryLocale := info.EpisodeMetadata.AudioLocale; primaryLocale != "" {
-			if _, ok := guidByLocale[primaryLocale]; ok {
-				audioLangs = append(audioLangs, primaryLocale)
-			}
-		}
-		for locale := range guidByLocale {
-			if locale != info.EpisodeMetadata.AudioLocale {
-				audioLangs = append(audioLangs, locale)
-			}
-		}
-		if len(audioLangs) > 1 {
-			sort.Strings(audioLangs[1:])
+	availableAudio := make([]string, 0, len(guidByLocale))
+	for locale, guid := range guidByLocale {
+		if locale != "" && guid != "" {
+			availableAudio = append(availableAudio, locale)
 		}
 	}
+	audioLangs = expandLangs(audioLangs, availableAudio, "ja-JP")
 
 	type audioVersion struct {
 		locale    string
@@ -437,17 +512,22 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	for _, locale := range audioLangs {
 		guid, ok := guidByLocale[locale]
 		if !ok {
-			fmt.Printf("! Audio locale %s is not available for episode %v, aborting this episode.\n", locale, info.EpisodeMetadata.EpisodeNumber)
-			return false
+			fmt.Printf("! Audio locale %s is not available for episode %v, skipping it.\n", locale, info.EpisodeMetadata.EpisodeNumber)
+			continue
 		}
 		versions = append(versions, audioVersion{locale: locale, contentId: guid})
 	}
 	if len(versions) == 0 {
 		fmt.Printf("! None of the requested audio locales are available for episode %v, aborting this episode.\n", info.EpisodeMetadata.EpisodeNumber)
-		return false
+		return
 	}
 
 	fmt.Printf("Downloading: %s (S%02vE%02v) from %s\n", info.Title, info.EpisodeMetadata.SeasonNumber, info.EpisodeMetadata.EpisodeNumber, info.EpisodeMetadata.SeriesTitle)
+
+	// Space this download out from the previous one, if a delay is configured.
+	// Applied here rather than around the whole function so that episodes
+	// already on disk (returned above) don't burn the wait for nothing.
+	backoff.wait()
 
 	// activeStreams tracks every playback token we open so we can release them
 	// all if anything fails partway through.
@@ -456,6 +536,10 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		activeStreams = map[string]string{}
 	)
 	defer func() {
+		// Start the backoff clock as soon as this download is over, success or
+		// not, so a failed/rate-limited attempt doesn't get retried immediately.
+		backoff.done()
+
 		print("Cleaning up...\n")
 
 		streamsMu.Lock()
@@ -469,26 +553,52 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 			}
 		}
 		if r := recover(); r != nil {
-			fmt.Printf("Recovered from error: %v\n%s\n", r, runtimedebug.Stack())
+			if e, ok := r.(error); ok {
+				err = e
+			} else {
+				err = fmt.Errorf("%v", r)
+			}
+			if *debug {
+				fmt.Printf("Recovered from error: %v\n%s\n", r, runtimedebug.Stack())
+			} else {
+				fmt.Printf("Recovered from error: %v\n", r)
+			}
 		}
 	}()
 
-	// Fetch every version's playback up front so subtitle and caption
-	// availability can be validated against the union of all versions. Closed
-	// captions are per-audio-locale: a caption locale (e.g. the English dub's
-	// en-US captions) only appears on that version's playback, so the first
-	// version alone is not enough when multiple audio languages are requested.
+	// Fetch selected dubs' playback up front. Captions are per-audio-locale,
+	// and the first version alone may not contain the requested captions.
 	episodes := make([]Episode, len(versions))
+	selectedGUIDs := make([]string, 0, len(versions))
 	for i, version := range versions {
 		ep, err := getEpisode(version.contentId)
 		if err != nil {
 			panic(err)
-			
 		}
 		episodes[i] = ep
+		selectedGUIDs = append(selectedGUIDs, version.contentId)
 		streamsMu.Lock()
 		activeStreams[version.contentId] = ep.Token
 		streamsMu.Unlock()
+	}
+	if requestsAll(subsLangs) || requestsAll(ccLangs) {
+		// ALL covers the episode, including captions attached to dubs whose
+		// audio was not selected. Keep these playback tokens until the tracks
+		// have downloaded, but do not download their audio streams.
+		for _, guid := range additionalVersionGUIDs(guidByLocale, selectedGUIDs) {
+			ep, fetchErr := getEpisode(guid)
+			if fetchErr != nil {
+				if errors.Is(fetchErr, ErrRateLimited) {
+					panic(fetchErr)
+				}
+				fmt.Printf("! Playback %s is unavailable; skipping its subtitles and captions: %v\n", guid, fetchErr)
+				continue
+			}
+			episodes = append(episodes, ep)
+			streamsMu.Lock()
+			activeStreams[guid] = ep.Token
+			streamsMu.Unlock()
+		}
 	}
 
 	// Merge subtitles and captions across versions. Subtitles (translation
@@ -496,24 +606,8 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	// per-dub transcriptions that only exist on their own version.
 	subtitles, captions := mergeSubtitleAndCaptions(episodes)
 
-	if len(subsLangs) == 1 && subsLangs[0] == "all" {
-		subsLangs = make([]string, 0, len(subtitles))
-		for locale, sub := range subtitles {
-			if sub != nil && sub.URL != "" {
-				subsLangs = append(subsLangs, locale)
-			}
-		}
-		sort.Strings(subsLangs)
-	}
-	if len(ccLangs) == 1 && ccLangs[0] == "all" {
-		ccLangs = make([]string, 0, len(captions))
-		for locale, cc := range captions {
-			if cc != nil && cc.URL != "" {
-				ccLangs = append(ccLangs, locale)
-			}
-		}
-		sort.Strings(ccLangs)
-	}
+	subsLangs = expandLangs(subsLangs, availableSubtitleLangs(subtitles), "en-US")
+	ccLangs = expandLangs(ccLangs, availableSubtitleLangs(captions), "")
 
 	fmt.Printf("Audio locales: %s | Subtitle locales: %s | CC locales: %s\n",
 		strings.Join(audioLangs, ", "), strings.Join(subsLangs, ", "), strings.Join(ccLangs, ", "))
@@ -663,7 +757,29 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	mergeEverything(videoFile, audioTracks, subTracks, outputFile, info)
 	tempPath := os.Getenv("TEMP") + "\\CR-DL"
 	os.RemoveAll(tempPath)
-	return true
+	return nil
+}
+
+// downloadEpisodeWithRetry runs downloadEpisode, retrying the same episode
+// with a growing delay whenever Crunchyroll rate-limits the account, instead
+// of moving on to the next episode and immediately tripping the same rate
+// limit again.
+func downloadEpisodeWithRetry(baseContentId string, info EpisodeInfo, audioLangs, subsLangs, ccLangs []string, videoQuality, audioQuality *string, baseDirectory string) {
+	for {
+		err := downloadEpisode(baseContentId, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, baseDirectory)
+		if err == nil {
+			backoff.resetRateLimit()
+			return
+		}
+		if !errors.Is(err, ErrRateLimited) {
+			return
+		}
+
+		wait := backoff.rateLimitWait()
+		retryAt := time.Now().Add(wait)
+		fmt.Printf("Retrying this episode in %s [%s]...\n", wait.Round(time.Second), retryAt.Local().Format(time.Kitchen))
+		time.Sleep(wait)
+	}
 }
 
 func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs, ccLangs []string, episodes []SeasonEpisode, baseDirectory string) {
@@ -682,16 +798,6 @@ func downloadSeason(videoQuality, audioQuality *string, audioLangs, subsLangs, c
 			Title: episode.Title,
 		}
 
-		workDone := downloadEpisode(episode.ID, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, baseDirectory)
-		
-		if workDone {
-			fmt.Printf("Delaying for %v seconds.\n", *downloadThrottle)
-			sleep_count := *downloadThrottle / 10
-			for i := 0; i < sleep_count; i++ {
-				time.Sleep(time.Second * time.Duration(10))
-				fmt.Printf("Slept for %v of %v seconds\r", (i+1)*10, *downloadThrottle)
-			}
-			fmt.Printf("\n\n")
-		}
+		downloadEpisodeWithRetry(episode.ID, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, baseDirectory)
 	}
 }

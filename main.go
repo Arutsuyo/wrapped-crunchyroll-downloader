@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -18,11 +19,16 @@ var (
 	seasonNumber     = flag.Int("season", 0, "Season number. Not used if an episode link is entered")
 	etpRt            = flag.String("etp-rt", "", "The \"etp_rt\" cookie value of your account")
 	debug            = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
+	downloadDelay = flag.Duration("download-delay", 0, "Minimum delay between episode downloads, to help avoid Crunchyroll's rate limiting (e.g. \"30s\", \"2m\")")
 	output           = flag.String("output-dir", ".", "Target output folder")
-	downloadThrottle = flag.Int("throttle", 60, "Throttling between downloads to avoid tripping resource limits. Only used when not specifying a specific episode")
 	dryRun           = flag.Bool("dry-run", false, "Act like you will download all of a series but doesn't actually query. Will force throttle to be <=1 if set.")
 	verbosity        = flag.Int("loglevel", 2, "Logging level: (0=Errors, 1=Warnings, 2=Info, 3=Debug, 4=Trace).")
 )
+
+// backoff spaces out consecutive episode downloads by *downloadDelay. It is
+// initialized in main() once flags are parsed, and is a no-op (including when
+// left nil) whenever no delay is configured.
+var backoff *downloadBackoff
 
 // parseLangs splits a comma-separated locale list, trimming spaces and dropping
 // empties.
@@ -34,6 +40,17 @@ func parseLangs(s string) []string {
 		}
 	}
 	return out
+}
+
+// preferredRequestLocale provides a real locale for the season API even when
+// ALL is requested; track selection still happens against each episode later.
+func preferredRequestLocale(langs []string, fallback string) string {
+	for _, locale := range langs {
+		if !strings.EqualFold(locale, "all") {
+			return locale
+		}
+	}
+	return fallback
 }
 
 // parseUrl extracts the content type ("watch" or "series") and content ID from a
@@ -64,17 +81,14 @@ func processUrl(url string) {
 	ccLangs := parseLangs(*ccLang)
 
 	// The season/series API endpoints take a single preferred locale; use the
-	// primary (first) requested one. All dub versions are still listed per
-	// episode, so the other languages remain resolvable.
-	primaryAudio := audioLangs[0]
-	primarySubs := "en-US"
-	if len(subsLangs) > 0 {
-		primarySubs = subsLangs[0]
-	}
+	// first explicit request or the usual default for ALL alone. Track
+	// availability is resolved from each episode's dub versions later.
+	primaryAudio := preferredRequestLocale(audioLangs, "ja-JP")
+	primarySubs := preferredRequestLocale(subsLangs, "en-US")
 
 	if contentType == "watch" {
 		info := getEpisodeInfo(contentId)
-		downloadEpisode(contentId, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, *output)
+		downloadEpisodeWithRetry(contentId, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, *output)
 	} else {
 		seasons := getSeasons(contentId, primaryAudio, primarySubs)
 
@@ -119,7 +133,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	token = GetAccessToken(*etpRt)
+	// Checked up front so a missing ffmpeg fails before anything is downloaded,
+	// not at merge time after every track has been fetched.
+	ffmpeg, err := findFFmpeg()
+	if err != nil {
+		fmt.Println("FFmpeg wasn't found. Install it and add it to your PATH, or put the ffmpeg executable in the same folder as this program.\nDownload it from https://www.ffmpeg.org/download.html")
+		os.Exit(1)
+	}
+	ffmpegPath = ffmpeg
+
+	token, err = GetAccessToken(*etpRt)
+	if errors.Is(err, errAuthRejected) {
+		fmt.Printf("Couldn't log in: %s\nYour \"-etp-rt\" cookie is wrong or expired. Copy a fresh one from your browser (see the README).\n", err)
+		os.Exit(1)
+	}
+	if err != nil {
+		fmt.Printf("Couldn't log in: %s\n", err)
+		os.Exit(1)
+	}
+	backoff = newDownloadBackoff(*downloadDelay)
 
 	if *urlsFile != "" {
 		file, err := os.Open(*urlsFile)
