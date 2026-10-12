@@ -20,7 +20,7 @@ var (
 	etpRt         = flag.String("etp-rt", "", "The \"etp_rt\" cookie value of your account")
 	debug         = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
 	downloadDelay = flag.Duration("download-delay", 0, "Minimum delay between episode downloads, to help avoid Crunchyroll's rate limiting (e.g. \"30s\", \"2m\")")
-	output           = flag.String("output-dir", ".", "Target output folder")
+	output        = flag.String("output-dir", ".", "Target base path for downloading")
 )
 
 // backoff spaces out consecutive episode downloads by *downloadDelay. It is
