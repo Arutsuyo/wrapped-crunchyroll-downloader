@@ -20,6 +20,7 @@ var (
 	etpRt         = flag.String("etp-rt", "", "The \"etp_rt\" cookie value of your account")
 	debug         = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
 	downloadDelay = flag.Duration("download-delay", 0, "Minimum delay between episode downloads, to help avoid Crunchyroll's rate limiting (e.g. \"30s\", \"2m\")")
+	output           = flag.String("output-dir", ".", "Target output folder")
 )
 
 // backoff spaces out consecutive episode downloads by *downloadDelay. It is
@@ -85,7 +86,7 @@ func processUrl(url string) {
 
 	if contentType == "watch" {
 		info := getEpisodeInfo(contentId)
-		downloadEpisodeWithRetry(contentId, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality)
+		downloadEpisodeWithRetry(contentId, info, audioLangs, subsLangs, ccLangs, videoQuality, audioQuality, *output)
 	} else {
 		seasons := getSeasons(contentId, primaryAudio, primarySubs)
 
@@ -103,13 +104,13 @@ func processUrl(url string) {
 			}
 
 			episodes := getSeasonEpisodes(seasonId, primaryAudio, primarySubs)
-			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, ccLangs, episodes)
+			downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, ccLangs, episodes, *output)
 		} else {
 			print("No season number specified, downloading all seasons...\n")
 
 			for _, season := range seasons {
 				episodes := getSeasonEpisodes(season.ID, primaryAudio, primarySubs)
-				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, ccLangs, episodes)
+				downloadSeason(videoQuality, audioQuality, audioLangs, subsLangs, ccLangs, episodes, *output)
 			}
 		}
 	}
