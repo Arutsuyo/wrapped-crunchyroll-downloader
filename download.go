@@ -542,7 +542,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		return
 	}
 
-	fmt.Printf("Downloading: %s (S%02vE%02v) from %s\n", info.Title, info.EpisodeMetadata.SeasonNumber, info.EpisodeMetadata.EpisodeNumber, info.EpisodeMetadata.SeriesTitle)
+	fmt.Printf("Downloading: %s\n", outputFile)
 
 	// Space this download out from the previous one, if a delay is configured.
 	// Applied here rather than around the whole function so that episodes

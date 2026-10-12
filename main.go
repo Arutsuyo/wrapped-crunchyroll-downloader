@@ -83,7 +83,7 @@ func processUrl(url string) {
 	// The season/series API endpoints take a single preferred locale; use the
 	// first explicit request or the usual default for ALL alone. Track
 	// availability is resolved from each episode's dub versions later.
-	primaryAudio := preferredRequestLocale(audioLangs, "ja-JP")
+	primaryAudio := preferredRequestLocale(audioLangs, "All")
 	primarySubs := preferredRequestLocale(subsLangs, "en-US")
 
 	if contentType == "watch" {
