@@ -14,7 +14,7 @@ var (
 	audioRequired	 = flag.Bool("audio-required", false, "[Bool] Sets a flag for audio lang. True: Langs are Required. False: Langs are preferred")
 	audioLang        = flag.String("audio-lang", "ja-JP", "Audio language(s), comma-separated for multiple (e.g. \"ja-JP,en-US\"). First is the default track")
 	subtitlesLang    = flag.String("subs-lang", "en-US", "Subtitle language(s), comma-separated for multiple (e.g. \"en-US,es-419\"). First is the default track")
-	ccLang        = flag.String("cc-lang", "", "Closed caption language(s), comma-separated for multiple (e.g. \"en-US\"). Downloaded in addition to --subs-lang, not instead of it")
+	ccLang        = flag.String("cc-lang", "en-US", "Closed caption language(s), comma-separated for multiple (e.g. \"en-US\"). Downloaded in addition to --subs-lang, not instead of it")
 	videoQuality     = flag.String("video-quality", "1080p", "Video quality")
 	audioQuality     = flag.String("audio-quality", "192k", "Audio quality")
 	seasonNumber     = flag.Int("season", 0, "Season number. Not used if an episode link is entered")
@@ -78,7 +78,13 @@ func processUrl(url string) {
 		audioLangs = []string{"ja-JP"}
 	}
 	subsLangs := parseLangs(*subtitlesLang)
+	if len(subsLangs) == 0 {
+		subsLangs = []string{"en-US"}
+	}
 	ccLangs := parseLangs(*ccLang)
+	if len(ccLangs) == 0 {
+		ccLangs = []string{"en-US"}
+	}
 
 	// The season/series API endpoints take a single preferred locale; use the
 	// first explicit request or the usual default for ALL alone. Track

@@ -402,6 +402,10 @@ func requestsAll(langs []string) bool {
 // offered. Lists without ALL are returned unchanged, including duplicates and
 // missing locales, so their existing handling remains intact.
 func expandLangs(requested, available []string, preferred string) []string {
+	if !requestsAll(requested) {
+		return requested
+	}
+
 	selected := make([]string, 0, len(requested)+len(available))
 	seen := make(map[string]bool, len(requested)+len(available))
 	for _, locale := range requested {
