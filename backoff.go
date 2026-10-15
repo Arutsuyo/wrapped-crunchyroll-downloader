@@ -47,10 +47,11 @@ func (b *downloadBackoff) wait() {
 		return
 	}
 	remaining := b.delay - b.now().Sub(b.last)
+	retryAt := time.Now().Add(remaining)
 	b.mu.Unlock()
 
 	if remaining > 0 {
-		fmt.Printf("Waiting %s before the next download (rate-limit backoff)...\n", remaining.Round(time.Second))
+		fmt.Printf("Waiting %s [%s] before the next download (rate-limit backoff)...\n", remaining.Round(time.Second), retryAt.Local().Format(time.Kitchen))
 		b.sleep(remaining)
 	}
 }
