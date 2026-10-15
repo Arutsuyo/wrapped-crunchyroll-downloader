@@ -504,7 +504,7 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	guidByLocale := buildGuidByLocale(info, baseContentId)
 	
 	// Check for explicit languages requested
-	if !requestsAll(audioLangs) {
+	if (*audioRequired) {
 		for _, locale := range audioLangs {
 			_, ok := guidByLocale[locale]
 			if !ok {
@@ -521,9 +521,6 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 		}
 	}
 
-	// Add available languages
-	audioLangs = expandLangs(audioLangs, availableAudio, "ja-JP")
-
 	type audioVersion struct {
 		locale    string
 		contentId string
@@ -539,6 +536,11 @@ func downloadEpisode(baseContentId string, info EpisodeInfo, audioLangs, subsLan
 	}
 	if len(versions) == 0 {
 		fmt.Printf("! None of the requested audio locales are available for episode %v, aborting this episode.\n", info.EpisodeMetadata.EpisodeNumber)
+		fmt.Print("Available Audio Options: ")
+		for _, lang := range availableAudio {
+			fmt.Printf("%s, ", lang)
+		}
+		fmt.Println("")
 		return
 	}
 

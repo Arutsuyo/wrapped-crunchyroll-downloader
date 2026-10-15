@@ -27,7 +27,7 @@ const defaultRateLimitWait = time.Minute
 
 // maxRateLimitWait caps rateLimitWait's exponential growth so a long streak of
 // consecutive rate-limit hits doesn't produce absurd delays.
-const maxRateLimitWait = 30 * time.Minute
+const maxRateLimitWait = 2 * time.Hour
 
 func newDownloadBackoff(delay time.Duration) *downloadBackoff {
 	return &downloadBackoff{delay: delay, now: time.Now, sleep: time.Sleep}

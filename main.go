@@ -11,6 +11,7 @@ import (
 
 var (
 	token            = ""
+	audioRequired	 = flag.Bool("audio-required", false, "[Bool] Sets a flag for audio lang. True: Langs are Required. False: Langs are preferred")
 	audioLang        = flag.String("audio-lang", "ja-JP", "Audio language(s), comma-separated for multiple (e.g. \"ja-JP,en-US\"). First is the default track")
 	subtitlesLang    = flag.String("subs-lang", "en-US", "Subtitle language(s), comma-separated for multiple (e.g. \"en-US,es-419\"). First is the default track")
 	ccLang        = flag.String("cc-lang", "", "Closed caption language(s), comma-separated for multiple (e.g. \"en-US\"). Downloaded in addition to --subs-lang, not instead of it")
@@ -21,7 +22,6 @@ var (
 	debug            = flag.Bool("debug-manifest", false, "Log raw episode playback JSON and manifest XML")
 	downloadDelay = flag.Duration("download-delay", 0, "Minimum delay between episode downloads, to help avoid Crunchyroll's rate limiting (e.g. \"30s\", \"2m\")")
 	output           = flag.String("output-dir", ".", "Target output folder")
-	dryRun           = flag.Bool("dry-run", false, "Act like you will download all of a series but doesn't actually query. Will force throttle to be <=1 if set.")
 	verbosity        = flag.Int("loglevel", 2, "Logging level: (0=Errors, 1=Warnings, 2=Info, 3=Debug, 4=Trace).")
 )
 
@@ -83,7 +83,7 @@ func processUrl(url string) {
 	// The season/series API endpoints take a single preferred locale; use the
 	// first explicit request or the usual default for ALL alone. Track
 	// availability is resolved from each episode's dub versions later.
-	primaryAudio := preferredRequestLocale(audioLangs, "All")
+	primaryAudio := preferredRequestLocale(audioLangs, "ja-JP")
 	primarySubs := preferredRequestLocale(subsLangs, "en-US")
 
 	if contentType == "watch" {

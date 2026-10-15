@@ -101,7 +101,7 @@ func mergeEverything(videoFile string, audioTracks, subTracks []mediaTrack, outp
 		"-metadata:g", "title="+fmt.Sprintf("S%02vE%02v - %s", info.EpisodeMetadata.SeasonNumber, info.EpisodeMetadata.EpisodeNumber, info.Title),
 		"-metadata:g", "show="+info.EpisodeMetadata.SeriesTitle,
 		"-metadata:g", "track="+fmt.Sprintf("%v", info.EpisodeMetadata.EpisodeNumber),
-		"-metadata:g", "season_number="+fmt.Sprintf("%v", info.EpisodeMetadata.EpisodeNumber),
+		"-metadata:g", "season_number="+fmt.Sprintf("%v", info.EpisodeMetadata.SeasonNumber),
 		outputFile,
 	)
 
